@@ -284,6 +284,21 @@ const OptimizeCVPage = () => {
                     animate={{ opacity: 1, y: 0 }}
                     className="space-y-6"
                   >
+                    {/* WARNING BANNER FOR NON-CV */}
+                    {result.is_valid_cv === false && (
+                      <div className="bg-rose-50 border border-rose-100 rounded-3xl p-6 flex items-start gap-4 shadow-sm">
+                        <div className="p-3 bg-rose-100 text-rose-600 rounded-2xl shrink-0">
+                          <AlertTriangle size={24} />
+                        </div>
+                        <div>
+                          <h3 className="font-black text-rose-800 text-base mb-1">Tài liệu tải lên không phải là CV</h3>
+                          <p className="text-xs text-rose-600 font-semibold leading-relaxed">
+                            {result.invalid_reason || "Hệ thống phát hiện tài liệu bạn tải lên không có cấu trúc hoặc thông tin của một bản CV cá nhân tiêu chuẩn (thiếu tên, liên hệ, học vấn, kinh nghiệm...). Vui lòng tải lên CV chính xác để đánh giá chính xác."}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* SCORE & RELEVANCY */}
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 bg-white border border-slate-100 rounded-3xl p-6 shadow-sm">
                       {/* SCORE */}
@@ -394,47 +409,7 @@ const OptimizeCVPage = () => {
                       </div>
                     </div>
 
-                    {/* SUGGESTED JOBS (FROM QDRANT DB VECTOR SEARCH) */}
-                    {result.suggested_jobs && result.suggested_jobs.length > 0 && (
-                      <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm">
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="font-black text-slate-800 text-lg flex items-center gap-2">
-                            <Briefcase className="text-emerald-500" size={20} /> Việc làm phù hợp tìm thấy (Qdrant AI)
-                          </h3>
-                        </div>
-                        <div className="space-y-3">
-                          {result.suggested_jobs.map((job) => (
-                            <div
-                              key={job.id}
-                              className="p-4 bg-slate-50 border border-slate-100 hover:border-emerald-200 rounded-2xl flex items-center justify-between gap-4 transition-all group"
-                            >
-                              <div>
-                                <h4 className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors text-sm">
-                                  {job.title}
-                                </h4>
-                                <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
-                                  <span className="font-semibold text-slate-500">{job.workLocation || "Toàn quốc"}</span>
-                                  <span>•</span>
-                                  <span className="font-bold text-emerald-600">{job.salary || "Thỏa thuận"}</span>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-4">
-                                <div className="text-right">
-                                  <span className="text-sm font-black text-indigo-600">{job.matchPercent}%</span>
-                                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-wide">Tương thích</p>
-                                </div>
-                                <a
-                                  href={`/candidate`}
-                                  className="p-2 bg-white text-slate-600 hover:text-indigo-600 hover:bg-indigo-50 border border-slate-200/50 rounded-xl transition-all"
-                                >
-                                  <ArrowRight size={16} />
-                                </a>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    {/* Suggested jobs section removed */}
                   </motion.div>
                 )}
 

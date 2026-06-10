@@ -6,8 +6,6 @@ import {
   Link as LinkIcon, DollarSign, Video, MapPin, CheckCircle2,
   X, Send, AlertTriangle
 } from 'lucide-react';
-import { currentUser } from '../../mockData/candidateData';
-
 import ProfileCard from '../../pages/candidate/ProfileCard';
 import SuggestedJobsTab from '../../pages/candidate/SuggestedJobsTab';
 import ReviewsTab from '../../pages/candidate/ReviewsTab';
@@ -79,7 +77,6 @@ const HomeFeed = () => {
             );
             allJobs = suggestRes.data.jobs || [];
             aiSource = suggestRes.data.source || 'QDRANT_VECTOR_SEARCH';
-            console.log(`🎯 [HomeFeed] source: ${aiSource} | ${allJobs.length} jobs`);
           } catch (e) {
             console.warn('⚠️ suggest-jobs failed, fallback:', e.message);
             const jobsRes = await axios.get('http://localhost:8081/api/jobs');
@@ -261,12 +258,7 @@ const HomeFeed = () => {
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="min-h-screen bg-slate-50 relative overflow-hidden">
       <div className="flex gap-8 items-start max-w-7xl mx-auto p-6 md:p-8">
-        <ProfileCard
-          currentUser={currentUser}
-          appliedCount={jobs.filter(j => j.isApplied).length}
-          viewedCount={3}
-          completionRate={90}
-        />
+        <ProfileCard />
 
         <div className="flex-1 space-y-8">
           <div className="relative flex bg-white/80 backdrop-blur-md rounded-2xl shadow-sm border border-slate-100 p-1.5">
@@ -300,7 +292,7 @@ const HomeFeed = () => {
               </motion.div>
             ) : (
               <motion.div key="reviews" variants={tabContentVariants} initial="initial" animate="animate" exit="exit">
-                <ReviewsTab currentUser={currentUser} setSelectedCompany={setSelectedCompany} />
+                <ReviewsTab setSelectedCompany={setSelectedCompany} />
               </motion.div>
             )}
           </AnimatePresence>

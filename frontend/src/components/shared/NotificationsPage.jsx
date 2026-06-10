@@ -47,7 +47,7 @@ const NotificationsPage = ({ role = 'employer' }) => {
       const res = await axios.get(`http://localhost:8081/api/notifications/user/${uid}`);
       setNotifications(res.data);
     } catch (error) {
-      console.error("Lỗi lấy thông báo:", error);
+      console.warn("Không thể tải danh sách thông báo:", error.message);
     }
   };
 
@@ -70,7 +70,7 @@ const NotificationsPage = ({ role = 'employer' }) => {
       try {
         await axios.put(`http://localhost:8081/api/notifications/${id}/read`);
         setNotifications(notifications.map(n => n.id === id ? { ...n, isRead: true } : n));
-      } catch (error) { console.error(error); }
+      } catch (error) { console.warn("Lỗi đánh dấu đã đọc:", error.message); }
     }
   };
 
@@ -80,7 +80,7 @@ const NotificationsPage = ({ role = 'employer' }) => {
     try {
       await axios.put(`http://localhost:8081/api/notifications/user/${uid}/read-all`);
       setNotifications(notifications.map(n => ({ ...n, isRead: true })));
-    } catch (error) { console.error(error); }
+    } catch (error) { console.warn("Lỗi đánh dấu đã đọc tất cả:", error.message); }
   };
 
   const handleDelete = async (id, e) => {
@@ -88,7 +88,7 @@ const NotificationsPage = ({ role = 'employer' }) => {
     try {
       await axios.delete(`http://localhost:8081/api/notifications/${id}`);
       setNotifications(notifications.filter(n => n.id !== id));
-    } catch (error) { console.error(error); }
+    } catch (error) { console.warn("Lỗi xóa thông báo:", error.message); }
   };
 
   // --- LOGIC CHUYỂN HƯỚNG SIÊU ĐỈNH CHO CẢ NTD & ỨNG VIÊN ---
@@ -372,7 +372,7 @@ const NotificationsPage = ({ role = 'employer' }) => {
             job={selectedJob} 
             onClose={() => setSelectedJob(null)} 
             onApply={(jobId) => {
-              console.log("Ứng tuyển job:", jobId);
+              navigate('/', { state: { openApplyJobId: jobId } });
             }}
           />
         )}

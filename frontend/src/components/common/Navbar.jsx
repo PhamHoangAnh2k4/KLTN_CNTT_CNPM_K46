@@ -133,7 +133,9 @@ const Navbar = () => {
       const res = await axios.get(`http://localhost:8081/api/notifications/user/${uid}`);
       setNotifications(res.data);
     } catch (error) {
-      console.error("Lỗi lấy thông báo:", error);
+      if (error.message !== "Network Error") {
+        console.warn("Chưa đồng bộ được thông báo:", error.message);
+      }
     }
   };
 
@@ -161,7 +163,7 @@ const Navbar = () => {
       await axios.put(`http://localhost:8081/api/notifications/user/${uid}/read-all`);
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
     } catch (error) {
-      console.error(error);
+      console.warn("Không thể đánh dấu đã đọc tất cả:", error.message);
     }
   };
 
@@ -171,7 +173,7 @@ const Navbar = () => {
         await axios.put(`http://localhost:8081/api/notifications/${notif.id}/read`);
         setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, isRead: true } : n));
       } catch (error) {
-        console.error(error);
+        console.warn("Không thể cập nhật trạng thái thông báo:", error.message);
       }
     }
     setShowNotifications(false);

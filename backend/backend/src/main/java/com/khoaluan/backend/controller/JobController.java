@@ -14,6 +14,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 
+import com.khoaluan.backend.service.SpringAiService;
+import com.khoaluan.backend.service.QdrantService;
+
 import java.io.IOException;
 import java.nio.file.*;
 import java.time.LocalDateTime;
@@ -35,6 +38,12 @@ public class JobController {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private SpringAiService springAiService;
+
+    @Autowired
+    private QdrantService qdrantService;
 
     private final String URL_UPLOAD_DIR = "uploads";
     private final String PHYSICAL_UPLOAD_DIR = "D:/DA_KHOALUAN/backend/uploads";
@@ -117,6 +126,25 @@ public class JobController {
         return jobRepository.findByEmployerId(employerId);
     }
 
+    private void indexJobInQdrant(Job job) {
+        if (job == null) return;
+        try {
+            String jobDescription = job.getJobDescription();
+            if (jobDescription != null && !jobDescription.trim().isEmpty()) {
+                List<Float> jdEmbeddingList = springAiService.getEmbeddingList(jobDescription);
+                if (jdEmbeddingList != null && !jdEmbeddingList.isEmpty()) {
+                    Map<String, String> jobMeta = new HashMap<>();
+                    jobMeta.put("title", job.getTitle() != null ? job.getTitle() : "");
+                    jobMeta.put("description", jobDescription);
+                    qdrantService.upsertJobVector(Long.valueOf(job.getJobId()), jdEmbeddingList, jobMeta);
+                    System.out.println("✅ [Qdrant] Tự động đồng bộ index vector cho Job ID: " + job.getJobId());
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ Lỗi đồng bộ index vector Job lên Qdrant: " + e.getMessage());
+        }
+    }
+
     // 1. ĐĂNG TIN
     @PostMapping
     public Job createJob(
@@ -151,6 +179,10 @@ public class JobController {
             job.setApplyCount(0);
 
         Job savedJob = jobRepository.save(job);
+
+        if ("Đang hiển thị".equalsIgnoreCase(savedJob.getStatus())) {
+            indexJobInQdrant(savedJob);
+        }
 
         saveManualLog(savedJob.getEmployerId(), "ĐĂNG TIN MỚI",
                 "Nhà tuyển dụng đã đăng một tin tuyển dụng mới: " + savedJob.getTitle());
@@ -218,6 +250,10 @@ public class JobController {
 
         Job savedJob = jobRepository.save(existingJob);
 
+        if ("Đang hiển thị".equalsIgnoreCase(savedJob.getStatus())) {
+            indexJobInQdrant(savedJob);
+        }
+
         saveManualLog(savedJob.getEmployerId(), "CẬP NHẬT TIN",
                 "Nhà tuyển dụng đã chỉnh sửa thông tin việc làm: " + savedJob.getTitle());
 
@@ -269,7 +305,8 @@ public class JobController {
 
             if ("Đang hiển thị".equals(newStatus)) {
                 job.setStatus(newStatus);
-                jobRepository.save(job);
+                Job savedJob = jobRepository.save(job);
+                indexJobInQdrant(savedJob);
 
                 notif.setTitle("🎉 Tin tuyển dụng đã được duyệt!");
                 notif.setMessage("Bài đăng '" + job.getTitle() + "' của bạn đã được kiểm duyệt và đang hiển thị.");

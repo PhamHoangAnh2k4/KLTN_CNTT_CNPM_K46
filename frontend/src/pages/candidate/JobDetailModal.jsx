@@ -160,6 +160,7 @@ const JobDetailModal = ({ job, onClose, onApply }) => {
   return (
     <AnimatePresence>
       <motion.div
+        key="job-detail-overlay"
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="fixed inset-0 z-[150] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 sm:p-6"
         onClick={onClose}
@@ -444,7 +445,7 @@ const JobDetailModal = ({ job, onClose, onApply }) => {
       </motion.div>
 
       {/* REPORT MODAL */}
-      <AnimatePresence>
+      <AnimatePresence key="report-modal-presence">
         {reportModal.isOpen && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -511,7 +512,7 @@ const JobDetailModal = ({ job, onClose, onApply }) => {
       </AnimatePresence>
 
       {/* TOAST THÔNG BÁO */}
-      <AnimatePresence>
+      <AnimatePresence key="toast-presence">
         {showToast && (
           <motion.div 
             initial={{ opacity: 0, y: -50 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}

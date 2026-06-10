@@ -112,6 +112,7 @@ public class EmployerAiController {
             Integer employerId = payload.get("employerId") != null
                     ? Integer.parseInt(payload.get("employerId").toString())
                     : null;
+            Boolean forceScan = payload.get("forceScan") != null ? (Boolean) payload.get("forceScan") : false;
 
             System.out.println("=== BẮT ĐẦU QUÉT AI AUTONOMOUS AGENT ===");
 
@@ -125,7 +126,7 @@ public class EmployerAiController {
             String avgTeamSalary = teamJobs.stream().map(Job::getSalary).filter(s -> s != null && !s.isEmpty())
                     .collect(Collectors.joining(", "));
             if (avgTeamSalary.isEmpty())
-                avgTeamSalary = "Không có dữ liệu";
+                    avgTeamSalary = "Không có dữ liệu";
 
             // Lấy JD Embedding cho Qdrant Vector DB
             List<Float> jdEmbeddingList = springAiService.getEmbeddingList(jobDescription);
@@ -139,7 +140,18 @@ public class EmployerAiController {
             }
 
             List<JobApplication> apps = applicationRepository.findByJobId(jobId);
-            int successCount = 0;
+            java.util.concurrent.atomic.AtomicInteger successCount = new java.util.concurrent.atomic.AtomicInteger(0);
+            java.util.concurrent.atomic.AtomicBoolean hasRateLimitError = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+            final String finalPrompt = prompt;
+            final String finalJobDescription = jobDescription;
+            final String finalJobSalary = jobSalary;
+            final String finalAvgTeamSalary = avgTeamSalary;
+            final String finalJdEmbeddingStr = jdEmbeddingStr;
+
+            // Sử dụng ThreadPool với tối đa 4 luồng xử lý song song để tránh chạm ngưỡng Rate Limit (429) của Gemini
+            java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(4);
+            List<java.util.concurrent.CompletableFuture<Void>> futures = new ArrayList<>();
 
             for (JobApplication app : apps) {
                 String cvUrl = app.getCvFileUrl();
@@ -147,98 +159,107 @@ public class EmployerAiController {
                     continue;
 
                 // Tối ưu tốc độ Demo: Nếu CV này đã từng quét rồi thì bỏ qua không gọi AI nữa
-                if (app.getAiSummary() != null && app.getMatchScore() != null && app.getMatchScore() > 0) {
+                if (!forceScan && app.getAiSummary() != null && app.getMatchScore() != null && app.getMatchScore() > 0) {
                     System.out.println("⚡ Tối ưu AI: Bỏ qua ứng viên " + app.getUserId() + " vì đã được quét trước đó.");
-                    successCount++;
+                    successCount.incrementAndGet();
                     continue;
                 }
 
-                try {
-                    System.out.println("🔍 Đang chạy Autonomous Agent cho CV: " + cvUrl);
-
-                    // 1. Trích xuất text thực bằng Gemini Multimodal và sinh Embedding thực tế
-                    String cvText = "";
+                futures.add(java.util.concurrent.CompletableFuture.runAsync(() -> {
                     try {
-                        cvText = springAiService.extractTextFromCvPdf(cvUrl);
-                        System.out.println("📝 Đã trích xuất nội dung CV thực tế: "
-                                + (cvText.length() > 100 ? cvText.substring(0, 100) + "..." : cvText));
-                    } catch (Exception e) {
-                        System.err.println("⚠ Lỗi trích xuất CV bằng Gemini, sử dụng text dự phòng: " + e.getMessage());
-                        cvText = "CV file tại " + cvUrl;
-                    }
+                        System.out.println("🔍 Đang chạy Autonomous Agent cho CV: " + cvUrl);
 
-                    List<Float> cvEmbeddingList = springAiService.getEmbeddingList(cvText);
-                    String cvEmbeddingStr = cvEmbeddingList.toString();
-
-                    if (!cvEmbeddingList.isEmpty()) {
-                        Map<String, String> cvMeta = new HashMap<>();
-                        cvMeta.put("cvUrl", cvUrl);
-                        cvMeta.put("userId", String.valueOf(app.getUserId()));
-                        qdrantService.upsertCvVector(Long.valueOf(app.getUserId()), cvEmbeddingList, cvMeta);
-                    }
-
-                    // Tính toán độ tương đồng Cosine thực tế dựa trên nội dung thực
-                    double similarity = springAiService.calculateCosineSimilarity(cvEmbeddingStr, jdEmbeddingStr);
-                    System.out.println("✅ Qdrant Vector DB (Cosine Similarity): " + similarity);
-
-                    // 2. Chạy Agent với thông số thực
-                    String aiResponse = springAiService.scanAndDecideAutonomous(cvUrl, jobDescription, similarity,
-                            jobSalary, avgTeamSalary, prompt, cvText);
-
-                    JSONObject json = new JSONObject(aiResponse);
-                    int matchScore = json.optInt("matchScore", 0);
-                    int legitScore = json.optInt("legitScore", 0);
-                    JSONObject summaryObj = json.optJSONObject("summary") != null ? json.getJSONObject("summary")
-                            : new JSONObject();
-                    summaryObj.put("ocrText", cvText); // Gắn bản OCR vào bản tóm tắt
-                    summaryObj.put("recommendation", json.optString("recommendation", "Chưa có đề xuất")); // Thêm đề
-                                                                                                           // xuất vào
-                                                                                                           // DB
-                    String summary = summaryObj.toString();
-
-                    String evidence = json.optJSONArray("evidence") != null ? json.getJSONArray("evidence").toString()
-                            : "[]";
-
-                    // 3. Cập nhật SQL Server
-                    applicationRepository.updateAiResult(jobId, app.getUserId(), matchScore, summary, legitScore,
-                            evidence, cvEmbeddingStr);
-
-                    successCount++;
-                    System.out.println("✅ Hoàn tất Agent Loop cho User " + app.getUserId());
-                    Thread.sleep(1500); // Giảm từ 6s xuống 1.5s để quét cực nhanh
-
-                } catch (Exception e) {
-                    try {
-                        java.nio.file.Files.write(java.nio.file.Paths.get("D:\\DA_KHOALUAN\\backend\\ai_error.log"),
-                                ("Lỗi User " + app.getUserId() + ": " + e.getMessage() + "\n").getBytes(),
-                                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
-                    } catch (Exception ex) {
-                    }
-                    System.out.println("❌ Lỗi quét CV User " + app.getUserId() + ": " + e.getMessage());
-
-                    if (e.getMessage() != null && e.getMessage().contains("429")) {
-                        // Trả 200 OK với cờ warning để frontend hiển thị thông báo thay vì crash
-                        if (employerId != null) {
-                            saveLog(employerId, "AUTONOMOUS AGENT",
-                                    "Hoàn tất quét " + successCount + " CV (dừng do rate limit) - tin ID: " + jobId);
+                        // 1. Trích xuất text thực bằng Gemini Multimodal và sinh Embedding thực tế
+                        String cvText = "";
+                        try {
+                            cvText = springAiService.extractTextFromCvPdf(cvUrl);
+                            System.out.println("📝 Đã trích xuất nội dung CV thực tế: "
+                                    + (cvText.length() > 100 ? cvText.substring(0, 100) + "..." : cvText));
+                        } catch (Exception e) {
+                            System.err.println("⚠ Lỗi trích xuất CV bằng Gemini, sử dụng text dự phòng: " + e.getMessage());
+                            cvText = "CV file tại " + cvUrl;
                         }
-                        return ResponseEntity.ok(Map.of(
-                                "message", "AI Agent đã hoàn tất vòng lặp!",
-                                "jobId", jobId,
-                                "scannedCount", successCount,
-                                "warning", "Đã quét được " + successCount
-                                        + " CV. Google Gemini tạm thời giới hạn tốc độ (429). Vui lòng đợi ~1 phút rồi quét lại để tiếp tục."));
+
+                        List<Float> cvEmbeddingList = springAiService.getEmbeddingList(cvText);
+                        String cvEmbeddingStr = cvEmbeddingList.toString();
+
+                        if (!cvEmbeddingList.isEmpty()) {
+                            Map<String, String> cvMeta = new HashMap<>();
+                            cvMeta.put("cvUrl", cvUrl);
+                            cvMeta.put("userId", String.valueOf(app.getUserId()));
+                            qdrantService.upsertCvVector(Long.valueOf(app.getUserId()), cvEmbeddingList, cvMeta);
+                        }
+
+                        // Tính toán độ tương đồng Cosine thực tế dựa trên nội dung thực
+                        double similarity = springAiService.calculateCosineSimilarity(cvEmbeddingStr, finalJdEmbeddingStr);
+                        System.out.println("✅ Qdrant Vector DB (Cosine Similarity): " + similarity);
+
+                        // 2. Chạy Agent với thông số thực
+                        String aiResponse = springAiService.scanAndDecideAutonomous(cvUrl, finalJobDescription, similarity,
+                                finalJobSalary, finalAvgTeamSalary, finalPrompt, cvText);
+
+                        JSONObject json = new JSONObject(aiResponse);
+                        int matchScore = json.optInt("matchScore", 0);
+                        int legitScore = json.optInt("legitScore", 0);
+                        JSONObject summaryObj = json.optJSONObject("summary") != null ? json.getJSONObject("summary")
+                                : new JSONObject();
+                        summaryObj.put("ocrText", cvText); // Gắn bản OCR vào bản tóm tắt
+                        summaryObj.put("recommendation", json.optString("recommendation", "Chưa có đề xuất")); // Thêm đề xuất vào DB
+                        String summary = summaryObj.toString();
+
+                        String evidence = json.optJSONArray("evidence") != null ? json.getJSONArray("evidence").toString()
+                                : "[]";
+
+                        // 3. Cập nhật SQL Server
+                        synchronized (applicationRepository) {
+                            applicationRepository.updateAiResult(jobId, app.getUserId(), matchScore, summary, legitScore,
+                                    evidence, cvEmbeddingStr);
+                        }
+
+                        successCount.incrementAndGet();
+                        System.out.println("✅ Hoàn tất Agent Loop cho User " + app.getUserId());
+                        Thread.sleep(1000); // Throttling nhẹ 1s để giảm áp lực gọi API dồn dập
+
+                    } catch (Exception e) {
+                        try {
+                            java.nio.file.Files.write(java.nio.file.Paths.get("D:\\DA_KHOALUAN\\backend\\ai_error.log"),
+                                    ("Lỗi User " + app.getUserId() + ": " + e.getMessage() + "\n").getBytes(),
+                                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+                        } catch (Exception ex) {
+                        }
+                        System.out.println("❌ Lỗi quét CV User " + app.getUserId() + ": " + e.getMessage());
+
+                        if (e.getMessage() != null && e.getMessage().contains("429")) {
+                            hasRateLimitError.set(true);
+                        }
                     }
-                }
+                }, executor));
             }
+
+            // Đợi tất cả các luồng hoàn thành
+            if (!futures.isEmpty()) {
+                java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0])).join();
+            }
+            executor.shutdown();
+
+            int finalSuccessCount = successCount.get();
 
             if (employerId != null) {
                 saveLog(employerId, "AUTONOMOUS AGENT",
-                        "Hoàn tất quét và tự động hóa cho " + successCount + " CV của tin ID: " + jobId);
+                        "Hoàn tất quét và tự động hóa cho " + finalSuccessCount + " CV của tin ID: " + jobId);
+            }
+
+            if (hasRateLimitError.get()) {
+                return ResponseEntity.ok(Map.of(
+                        "message", "AI Agent đã hoàn tất vòng lặp!",
+                        "jobId", jobId,
+                        "scannedCount", finalSuccessCount,
+                        "warning", "Đã quét được " + finalSuccessCount
+                                + " CV. Google Gemini tạm thời giới hạn tốc độ (429). Vui lòng đợi ~1 phút rồi quét lại để tiếp tục."));
             }
 
             return ResponseEntity.ok(
-                    Map.of("message", "AI Agent đã hoàn tất vòng lặp!", "jobId", jobId, "scannedCount", successCount));
+                    Map.of("message", "AI Agent đã hoàn tất vòng lặp!", "jobId", jobId, "scannedCount", finalSuccessCount));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body("Lỗi AI: " + e.getMessage());
         }
@@ -251,18 +272,23 @@ public class EmployerAiController {
     @PostMapping("/optimize-jd")
     public ResponseEntity<?> optimizeJd(@RequestBody Map<String, Object> payload) {
         try {
+            String title = payload.get("title") != null ? payload.get("title").toString() : "";
             String draftDescription = payload.get("description") != null ? payload.get("description").toString() : "";
             String draftRequirements = payload.get("requirements") != null ? payload.get("requirements").toString() : "";
+
+            if (title.isBlank()) {
+                title = "Nhân viên tuyển dụng";
+            }
 
             if (draftDescription.isBlank() && draftRequirements.isBlank()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "Vui lòng nhập bản nháp JD!"));
             }
 
-            String jsonResult = springAiService.optimizeJd(draftDescription, draftRequirements);
+            String jsonResult = springAiService.optimizeJd(title, draftDescription, draftRequirements);
             return ResponseEntity.ok(new JSONObject(jsonResult).toMap());
         } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity.badRequest().body(Map.of("error", "Lỗi tối ưu JD: " + e.getMessage()));
+            return ResponseEntity.badRequest().body(Map.of("error", getFriendlyAiError(e, "Lỗi tối ưu JD: ")));
         }
     }
 
@@ -289,7 +315,7 @@ public class EmployerAiController {
 
             return ResponseEntity.ok(new JSONArray(jsonArrayResult).toList());
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Lỗi sinh tiêu chí: " + e.getMessage()));
+            return ResponseEntity.badRequest().body(Map.of("error", getFriendlyAiError(e, "Lỗi sinh tiêu chí: ")));
         }
     }
     
@@ -342,7 +368,7 @@ public class EmployerAiController {
 
             return ResponseEntity.ok(new JSONObject(result).toMap());
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Lỗi đề xuất lương thưởng: " + e.getMessage()));
+            return ResponseEntity.badRequest().body(Map.of("error", getFriendlyAiError(e, "Lỗi đề xuất lương thưởng: ")));
         }
     }
 
@@ -380,6 +406,53 @@ public class EmployerAiController {
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
+    }
+
+    @PostMapping("/refine-text")
+    public ResponseEntity<?> refineText(@RequestBody Map<String, Object> payload) {
+        try {
+            String text = payload.get("text") != null ? payload.get("text").toString() : "";
+            if (text.isBlank()) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Vui lòng nhập nội dung cần tối ưu!"));
+            }
+            String refinedResultJson = springAiService.refineText(text);
+            String cleanJson = extractJson(refinedResultJson);
+            return ResponseEntity.ok(new org.json.JSONObject(cleanJson).toMap());
+        } catch (Exception e) {
+            e.printStackTrace();
+            // Tra ve fallback chuoi JSON hop le de khong lam crash frontend
+            return ResponseEntity.ok(Map.of(
+                "refinedText", payload.get("text") != null ? payload.get("text").toString() : "",
+                "improvements", List.of("Lỗi xử lý AI: " + e.getMessage())
+            ));
+        }
+    }
+
+    private String extractJson(String text) {
+        if (text == null) return "{}";
+        int start = text.indexOf('{');
+        int end = text.lastIndexOf('}');
+        if (start != -1 && end != -1 && start < end) {
+            return text.substring(start, end + 1);
+        }
+        return text;
+    }
+
+    private String getFriendlyAiError(Exception e, String prefix) {
+        String msg = e.getMessage() != null ? e.getMessage() : "";
+        if (msg.contains("503") || msg.contains("UNAVAILABLE") || msg.contains("high demand")) {
+            return "Hệ thống AI hiện đang quá tải (503 Service Unavailable). Vui lòng thử lại sau vài giây.";
+        }
+        if (msg.contains("429") || msg.contains("RESOURCE_EXHAUSTED") || msg.contains("rate limit") || msg.contains("limit")) {
+            return "Hệ thống AI đã vượt quá giới hạn số lượt gọi (429 Rate Limit). Vui lòng đợi một lát và thử lại.";
+        }
+        if (msg.contains("403") || msg.contains("PERMISSION_DENIED") || msg.contains("API key") || msg.contains("leaked")) {
+            return "Không thể kết nối với AI (403 Permission Denied / API Key không hợp lệ). Vui lòng liên hệ quản trị viên.";
+        }
+        if (msg.contains("400") || msg.contains("BAD_REQUEST")) {
+            return "Yêu cầu gửi tới AI không hợp lệ hoặc tài liệu bị lỗi cấu trúc (400 Bad Request).";
+        }
+        return prefix + e.getMessage();
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)

@@ -66,6 +66,21 @@ export const AiScanModal = ({ aiScan, setAiScan, startAiScan, confirmAiScan }) =
                 </div>
               </div>
 
+              {/* Lựa chọn Quét lại từ đầu */}
+              <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl mb-6 hover:border-violet-300 transition-colors">
+                <div className="flex flex-col">
+                  <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Quét lại toàn bộ từ đầu</span>
+                  <span className="text-[10px] text-slate-400 font-medium mt-0.5">Buộc AI phân tích lại toàn bộ các CV, bỏ qua kết quả đã lưu</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAiScan({ ...aiScan, forceScan: !aiScan.forceScan })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${aiScan.forceScan ? 'bg-violet-600' : 'bg-slate-300'}`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${aiScan.forceScan ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </div>
+
               <div className="bg-emerald-50 p-6 rounded-2xl border border-emerald-100 mb-6">
                 <h4 className="text-sm font-black text-emerald-800 mb-2 flex items-center gap-2"><Sparkles size={18} /> Chế Độ Phân Tích Thông Minh</h4>
                 <p className="text-xs font-medium text-emerald-600 leading-relaxed">
@@ -134,7 +149,7 @@ export const AiScanModal = ({ aiScan, setAiScan, startAiScan, confirmAiScan }) =
 // ==========================================
 // 2. CV MODAL (HIỂN THỊ DỮ LIỆU TỪ AI)
 // ==========================================
-export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle, onStatusChange }) => {
+export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle, onStatusChange, readOnly: readOnlyProp }) => {
   const [viewMode, setViewMode] = useState('summary');
   const [offerSuggestion, setOfferSuggestion] = useState(null);
   const [loadingOffer, setLoadingOffer] = useState(false);
@@ -149,6 +164,12 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
   const [expectedSalary, setExpectedSalary] = useState('');
   const [salaryType, setSalaryType] = useState('Gross');
   const [savingSalary, setSavingSalary] = useState(false);
+
+  // Dùng ref để giữ stable reference, tránh infinite loop trong useEffect
+  const closeCvModalRef = React.useRef(closeCvModal);
+  const openEmailModalRef = React.useRef(openEmailModal);
+  React.useLayoutEffect(() => { closeCvModalRef.current = closeCvModal; }, [closeCvModal]);
+  React.useLayoutEffect(() => { openEmailModalRef.current = openEmailModal; }, [openEmailModal]);
 
   const { id: jobIdParam } = useParams();
   const API_BASE_URL = "http://localhost:8081";
@@ -231,9 +252,15 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
     };
   };
 
+  // Xác định chế độ read-only: khi NTD truyền readOnly=true hoặc ứng viên ở trạng thái passed/rejected
+  const isReadOnly = readOnlyProp || candidate?.localStatus === 'passed' || candidate?.localStatus === 'rejected';
+
+  // Auto-redirect nếu ứng viên đã bị từ chối -> mở thẳng EmailModal từ chối
+  // Đã bỏ auto-redirect, thay bằng read-only view
+
   // Auto-load dữ liệu đã lưu trong DB khi mở modal
   useEffect(() => {
-    if (candidate) {
+    if (candidate && candidate.localStatus !== 'rejected') {
       setExpectedSalary(candidate.expectedSalary ? (candidate.expectedSalary / 1000000).toString() : '');
       setSalaryType(candidate.salaryType || 'Gross');
 
@@ -253,12 +280,12 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
       } else {
         setCriteriaMatrix(null);
       }
-    } else {
+    } else if (!candidate) {
       setOfferSuggestion(null);
       setExpectedSalary('');
       setSalaryType('Gross');
     }
-  }, [candidate?.id]);
+  }, [candidate?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!cvModal.isOpen || !cvModal.candidate) return null;
 
@@ -428,6 +455,11 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
         rejectReason: rejectReason
       });
 
+      candidate.localStatus = targetStatus;
+      if (rejectReason) {
+        candidate.rejectReason = rejectReason;
+      }
+
       alert(`Đã cập nhật kết quả phỏng vấn ứng viên thành công!`);
 
       // Trigger status change in parent component
@@ -461,26 +493,47 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
         {/* Header Tab */}
         <div className="h-20 bg-slate-900 relative shrink-0 flex items-center justify-between px-8 text-white">
           <div className="flex items-center gap-6 overflow-x-auto custom-scrollbar pr-4">
-            <div className="flex bg-slate-800 p-1 rounded-2xl border border-white/10 shrink-0">
-              <button
-                onClick={() => setViewMode('summary')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${viewMode === 'summary' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-              >
-                <Layout size={14} /> TÓM TẮT AI
-              </button>
-              <button
-                onClick={() => canEvaluate ? setViewMode('criteria') : alert("Bạn cần chuyển ứng viên sang trạng thái Phỏng Vấn (bằng cách Gửi Email Hẹn Phỏng Vấn) để mở khóa Đánh Giá Tiêu Chí.")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${!canEvaluate ? 'opacity-50 cursor-not-allowed bg-slate-800/50 text-slate-500' : viewMode === 'criteria' ? 'bg-violet-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-              >
-                {!canEvaluate ? <Lock size={14} /> : <Award size={14} />} ĐÁNH GIÁ TIÊU CHÍ
-              </button>
-              <button
-                onClick={() => canEvaluate ? setViewMode('offer') : alert("Bạn cần chuyển ứng viên sang trạng thái Phỏng Vấn để mở khóa Đề Xuất Offer.")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${!canEvaluate ? 'opacity-50 cursor-not-allowed bg-slate-800/50 text-slate-500' : viewMode === 'offer' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
-              >
-                {!canEvaluate ? <Lock size={14} /> : <DollarSign size={14} />} ĐỀ XUẤT OFFER
-              </button>
-            </div>
+            {isReadOnly ? (
+              /* READ-ONLY MODE: Chỉ hiện badge trạng thái, không có tab thao tác */
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-2xl border border-white/10">
+                  <Eye size={14} className="text-slate-300" />
+                  <span className="text-xs font-black text-slate-300 uppercase tracking-widest">CHẾ ĐỌC THÔNG TIN</span>
+                </div>
+                {candidate?.localStatus === 'rejected' && (
+                  <span className="px-3 py-1.5 bg-rose-500/20 text-rose-300 text-[10px] font-black uppercase tracking-widest rounded-xl border border-rose-500/30">
+                    Đã từ chối
+                  </span>
+                )}
+                {candidate?.localStatus === 'pending' && (
+                  <span className="px-3 py-1.5 bg-amber-500/20 text-amber-300 text-[10px] font-black uppercase tracking-widest rounded-xl border border-amber-500/30">
+                    Mới ứng tuyển
+                  </span>
+                )}
+              </div>
+            ) : (
+              /* NORMAL MODE: Hiện đầy đủ các tab thao tác */
+              <div className="flex bg-slate-800 p-1 rounded-2xl border border-white/10 shrink-0">
+                <button
+                  onClick={() => setViewMode('summary')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${viewMode === 'summary' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                >
+                  <Layout size={14} /> TÓM TẮT AI
+                </button>
+                <button
+                  onClick={() => canEvaluate ? setViewMode('criteria') : alert("Bạn cần chuyển ứng viên sang trạng thái Phỏng Vấn (bằng cách Gửi Email Hẹn Phỏng Vấn) để mở khóa Đánh Giá Tiêu Chí.")}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${!canEvaluate ? 'opacity-50 cursor-not-allowed bg-slate-800/50 text-slate-500' : viewMode === 'criteria' ? 'bg-violet-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                >
+                  {!canEvaluate ? <Lock size={14} /> : <Award size={14} />} ĐÁNH GIÁ TIÊU CHÍ
+                </button>
+                <button
+                  onClick={() => canEvaluate ? setViewMode('offer') : alert("Bạn cần chuyển ứng viên sang trạng thái Phỏng Vấn để mở khóa Đề Xuất Offer.")}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all ${!canEvaluate ? 'opacity-50 cursor-not-allowed bg-slate-800/50 text-slate-500' : viewMode === 'offer' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+                >
+                  {!canEvaluate ? <Lock size={14} /> : <DollarSign size={14} />} ĐỀ XUẤT OFFER
+                </button>
+              </div>
+            )}
           </div>
           <button onClick={closeCvModal} className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-all shrink-0 ml-4">
             <X size={24} />
@@ -529,9 +582,9 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
                   <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
                     <span>🤖</span> AI Đề Xuất Tuyển Dụng
                   </h4>
-                  <div className={`p-4 border-l-4 rounded-r-md font-medium italic text-sm leading-relaxed shadow-sm ${aiData.recommendation.toLowerCase().includes('loại')
+                  <div className={`p-4 border-l-4 rounded-r-md font-medium italic text-sm leading-relaxed shadow-sm ${aiData.recommendation.toLowerCase().includes('loại') || aiData.recommendation.toLowerCase().includes('reject')
                     ? 'bg-rose-50/80 border-rose-500 text-rose-900'
-                    : 'bg-emerald-50/80 border-emerald-500 text-emerald-900'
+                    : 'bg-emerald-50/80 border-emerald-500 text-emerald-950'
                     }`}>
                     {aiData.recommendation}
                   </div>
@@ -540,18 +593,21 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
 
               {aiData ? (
                 <>
-
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
                     <div className="space-y-8">
                       <section>
                         <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><CheckCircle2 size={16} /> Phân tích Evidence</h4>
                         <div className="space-y-3">
-                          {evidenceData && evidenceData.length > 0 ? evidenceData.map((ev, i) => (
-                            <div key={i} className={`p-3.5 rounded-xl border text-xs font-medium transition-all hover:-translate-y-1 hover:shadow-md ${ev.type === 'red_flag' ? 'bg-rose-50/80 border-rose-200 text-rose-700 hover:shadow-rose-100' : 'bg-emerald-50/80 border-emerald-200 text-emerald-700 hover:shadow-emerald-100'}`}>
-                              {ev.type === 'red_flag' ? <AlertCircle size={14} className="inline mb-0.5 mr-1.5" /> : <CheckCircle size={14} className="inline mb-0.5 mr-1.5" />}
-                              {ev.content}
-                            </div>
-                          )) : <p className="text-xs text-slate-400 italic">Không có evidence nổi bật.</p>}
+                          {evidenceData && evidenceData.length > 0 ? evidenceData.map((ev, i) => {
+                            const isWarningOrRisk = ev.type === 'red_flag' || ev.type === 'risk' || ev.type === 'mismatch';
+                            const detailText = ev.detail || ev.content || "";
+                            return (
+                              <div key={i} className={`p-3.5 rounded-xl border text-xs font-medium transition-all hover:-translate-y-1 hover:shadow-md ${isWarningOrRisk ? 'bg-rose-50/80 border-rose-200 text-rose-700 hover:shadow-rose-100' : 'bg-emerald-50/80 border-emerald-200 text-emerald-700 hover:shadow-emerald-100'}`}>
+                                {isWarningOrRisk ? <AlertCircle size={14} className="inline mb-0.5 mr-1.5" /> : <CheckCircle size={14} className="inline mb-0.5 mr-1.5" />}
+                                {detailText}
+                              </div>
+                            );
+                          }) : <p className="text-xs text-slate-400 italic">Không có evidence nổi bật.</p>}
                         </div>
                       </section>
 
@@ -580,14 +636,25 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
                     <div className="md:col-span-2 space-y-8">
                       <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Briefcase size={16} /> Kinh nghiệm làm việc</h4>
                       <div className="space-y-8 relative before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-100">
-                        {aiData.workHistory && Array.isArray(aiData.workHistory) && aiData.workHistory.length > 0 ? aiData.workHistory.map((work, idx) => (
-                          <div key={idx} className="pl-8 relative">
-                            <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-white border-4 border-blue-500 shadow-sm"></div>
-                            <h5 className="font-black text-slate-800 text-lg leading-none">{work.role}</h5>
-                            <p className="text-sm font-bold text-blue-600 my-2">{work.company} • <span className="text-slate-400">{work.duration}</span></p>
-                            <p className="text-sm text-slate-500 leading-relaxed font-medium">{work.description}</p>
-                          </div>
-                        )) : <p className="pl-8 italic text-slate-400 text-sm">Chưa có kinh nghiệm hoặc AI không thể trích xuất.</p>}
+                        {aiData.workHistory && Array.isArray(aiData.workHistory) && aiData.workHistory.length > 0 ? aiData.workHistory.map((work, idx) => {
+                          const isString = typeof work === 'string';
+                          return (
+                            <div key={idx} className="pl-8 relative">
+                              <div className="absolute left-0 top-1.5 w-4 h-4 rounded-full bg-white border-4 border-blue-500 shadow-sm"></div>
+                              <h5 className="font-black text-slate-800 text-lg leading-none">
+                                {isString ? "Kinh nghiệm làm việc" : (work.role || "Chức danh")}
+                              </h5>
+                              {isString ? (
+                                <p className="text-sm text-slate-500 leading-relaxed font-medium mt-2">{work}</p>
+                              ) : (
+                                <>
+                                  <p className="text-sm font-bold text-blue-600 my-2">{work.company || "Công ty"} • <span className="text-slate-400">{work.duration || "Thời gian"}</span></p>
+                                  <p className="text-sm text-slate-500 leading-relaxed font-medium">{work.description}</p>
+                                </>
+                              )}
+                            </div>
+                          );
+                        }) : <p className="pl-8 italic text-slate-400 text-sm">Chưa có kinh nghiệm hoặc AI không thể trích xuất.</p>}
                       </div>
 
                       {/* Hiển thị Văn bản OCR - Business Premium Style */}
@@ -654,7 +721,7 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
                     <h4 className="text-xs font-black uppercase text-slate-600 flex items-center gap-2">
                       <DollarSign size={14} className="text-emerald-500" /> Mức lương ứng viên đề xuất
                     </h4>
-                    {expectedSalary && (
+                    {expectedSalary && !isReadOnly && (
                       <button
                         type="button"
                         onClick={handleSaveSalary}
@@ -673,10 +740,11 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
                         <input
                           type="number"
                           step="0.1"
-                          placeholder="Nhập mức lương (VD: 15)"
+                          placeholder={isReadOnly ? "Chưa có mức lương đề xuất" : "Nhập mức lương (VD: 15)"}
                           value={expectedSalary}
                           onChange={(e) => setExpectedSalary(e.target.value)}
-                          className="w-full pl-4 pr-16 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-emerald-500 transition-all"
+                          disabled={isReadOnly}
+                          className="w-full pl-4 pr-16 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-emerald-500 transition-all disabled:bg-slate-100 disabled:text-slate-500"
                         />
                         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">Triệu VNĐ</span>
                       </div>
@@ -688,11 +756,12 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
-                            onClick={() => setSalaryType('Gross')}
+                            onClick={() => !isReadOnly && setSalaryType('Gross')}
+                            disabled={isReadOnly}
                             className={`py-2 px-3 rounded-xl border text-left transition-all ${salaryType === 'Gross'
                                 ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-100'
                                 : 'bg-white border-slate-200 hover:border-slate-300'
-                              }`}
+                              } disabled:opacity-85`}
                           >
                             <div className="text-[10px] font-black text-slate-700">GROSS</div>
                             <div className="text-[10px] text-blue-700 font-bold mt-0.5">Net: ~{Math.round(parseFloat(expectedSalary) * 0.895 * 10) / 10}tr</div>
@@ -700,11 +769,12 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
 
                           <button
                             type="button"
-                            onClick={() => setSalaryType('Net')}
+                            onClick={() => !isReadOnly && setSalaryType('Net')}
+                            disabled={isReadOnly}
                             className={`py-2 px-3 rounded-xl border text-left transition-all ${salaryType === 'Net'
                                 ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-100'
                                 : 'bg-white border-slate-200 hover:border-slate-300'
-                              }`}
+                              } disabled:opacity-85`}
                           >
                             <div className="text-[10px] font-black text-slate-700">NET</div>
                             <div className="text-[10px] text-emerald-700 font-bold mt-0.5">Gross: ~{Math.round(parseFloat(expectedSalary) / 0.895 * 10) / 10}tr</div>
@@ -1050,12 +1120,20 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
         <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
           <div className="flex gap-3 ml-auto">
             <button onClick={closeCvModal} className="px-6 py-3 font-bold text-slate-500 hover:bg-slate-200 rounded-2xl transition-all">Đóng</button>
-            <button
-              onClick={() => { closeCvModal(); openEmailModal(candidate); }}
-              className="px-8 py-3 bg-blue-600 text-white font-black rounded-2xl hover:bg-slate-900 transition-all shadow-xl shadow-blue-200 flex items-center gap-2"
-            >
-              <Mail size={18} /> LIÊN HỆ NGAY
-            </button>
+            {!isReadOnly && (
+              <button
+                onClick={() => { closeCvModal(); openEmailModal(candidate); }}
+                className="px-8 py-3 bg-blue-600 text-white font-black rounded-2xl hover:bg-slate-900 transition-all shadow-xl shadow-blue-200 flex items-center gap-2"
+              >
+                <Mail size={18} /> LIÊN HỆ NGAY
+              </button>
+            )}
+            {isReadOnly && candidate?.localStatus === 'rejected' && candidate?.rejectReason && (
+              <div className="flex items-center gap-2 px-4 py-2 bg-rose-50 text-rose-600 rounded-2xl border border-rose-100">
+                <Info size={14} />
+                <span className="text-xs font-bold">Lý do từ chối: {candidate.rejectReason}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1067,32 +1145,85 @@ export const CvModal = ({ cvModal, closeCvModal, openEmailModal, getStatusStyle,
 // 3. EMAIL MODAL
 // ==========================================
 export const EmailModal = ({ emailModal, closeEmailModal, emailForm, setEmailForm, handleSendEmailSubmit }) => {
+  const { id } = useParams();
   const [showPreview, setShowPreview] = useState(false);
+  const API_BASE_URL = "http://localhost:8081";
+  const [refinePopup, setRefinePopup] = useState({ isOpen: false, fieldName: '', original: '', refined: '', improvements: [] });
+  const [loadingRefinement, setLoadingRefinement] = useState(false);
+  const [jobLocation, setJobLocation] = useState("Văn phòng JobAI - Tầng 5, Tòa nhà Innovation, Hà Nội");
+
+  const handleAiRefineText = async (fieldName) => {
+    const textToRefine = emailForm[fieldName];
+    if (!textToRefine || !textToRefine.trim()) {
+      alert("Vui lòng nhập nội dung trước khi tối ưu!");
+      return;
+    }
+    setLoadingRefinement(true);
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/employer-ai/refine-text`, { text: textToRefine });
+      if (response.data) {
+        setRefinePopup({
+          isOpen: true,
+          fieldName: fieldName,
+          original: textToRefine,
+          refined: response.data.refinedText || '',
+          improvements: response.data.improvements || []
+        });
+      }
+    } catch (error) {
+      console.error("Lỗi tối ưu văn bản:", error);
+      alert("Không thể tối ưu hóa văn bản bằng AI ở thời điểm hiện tại.");
+    } finally {
+      setLoadingRefinement(false);
+    }
+  };
 
   React.useEffect(() => {
     if (emailModal.isOpen && emailModal.candidate) {
       const pref = emailModal.candidate.interviewPreference;
       const isOverridden = emailModal.candidate.interviewPreferenceOverride || false;
+      const isRejected = emailModal.candidate.localStatus === 'rejected';
 
-      setEmailForm(prev => {
-        let loc = prev.locationOrLink;
-        // Chỉ ghi đè khi chưa lưu override và có lựa chọn
-        if (!isOverridden && pref) {
-          if (pref === 'online') {
-            loc = "https://meet.google.com/abc-xyz-123 (Google Meet)";
-          } else if (pref === 'offline') {
-            loc = "Văn phòng JobAI - Tầng 5, Tòa nhà Innovation, Hà Nội";
+      const fetchJobLocation = async () => {
+        let locVal = "Văn phòng JobAI - Tầng 5, Tòa nhà Innovation, Hà Nội";
+        if (id) {
+          try {
+            const res = await axios.get(`${API_BASE_URL}/api/jobs/${id}`);
+            if (res.data && res.data.workLocation) {
+              locVal = res.data.workLocation;
+              setJobLocation(locVal);
+            }
+          } catch (err) {
+            console.error("Lỗi khi tải địa điểm công việc:", err);
           }
         }
-        return {
-          ...prev,
-          interviewPreference: pref || 'online',
-          interviewPreferenceOverride: isOverridden,
-          locationOrLink: loc || ''
-        };
-      });
+
+        setEmailForm(prev => {
+          let loc = prev.locationOrLink;
+          // Chỉ ghi đè khi chưa lưu override và có lựa chọn
+          if (!isOverridden && pref) {
+            if (pref === 'online') {
+              loc = "https://meet.google.com/abc-xyz-123 (Google Meet)";
+            } else if (pref === 'offline') {
+              loc = locVal;
+            }
+          } else if (!loc) {
+            loc = pref === 'online' ? "https://meet.google.com/abc-xyz-123 (Google Meet)" : locVal;
+          }
+          return {
+            ...prev,
+            type: isRejected ? 'reject' : prev.type,
+            rejectReason: isRejected ? (emailModal.candidate.rejectReason || 'Kinh nghiệm chuyên môn chưa đáp ứng đủ yêu cầu của vị trí này.') : prev.rejectReason,
+            interviewPreference: pref || 'online',
+            interviewPreferenceOverride: isOverridden,
+            locationOrLink: loc || ''
+          };
+        });
+      };
+
+      fetchJobLocation();
     }
-  }, [emailModal.isOpen, emailModal.candidate, setEmailForm]);
+  }, [emailModal.isOpen, emailModal.candidate, setEmailForm, id]);
 
   if (!emailModal.isOpen) return null;
   const candidateName = emailModal.candidate?.fullName || emailModal.candidate?.name || "Ứng viên";
@@ -1236,51 +1367,55 @@ export const EmailModal = ({ emailModal, closeEmailModal, emailForm, setEmailFor
         <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/50">
           {!showPreview ? (
             <div className="p-8 space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="space-y-3">
-                <label className="text-xs font-black text-slate-800 uppercase tracking-widest">1. Chọn loại thông báo</label>
-                <div className="grid grid-cols-2 gap-4">
-                  {emailModal.candidate?.localStatus !== 'interviewing' && (
+              {emailModal.candidate?.localStatus !== 'rejected' && (
+                <div className="space-y-3">
+                  <label className="text-xs font-black text-slate-800 uppercase tracking-widest">1. Chọn loại thông báo</label>
+                  <div className="grid grid-cols-2 gap-4">
+                    {emailModal.candidate?.localStatus !== 'interviewing' && (
+                      <button
+                        type="button"
+                        className={`p-5 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 relative overflow-hidden ${emailForm.type === 'interview' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md scale-[1.02]' : 'border-slate-200 bg-white text-slate-400 hover:border-slate-300'}`}
+                        onClick={() => setEmailForm({ ...emailForm, type: 'interview' })}
+                      >
+                        {emailForm.type === 'interview' && <div className="absolute top-3 right-3 text-blue-500"><CheckCircle2 size={18} /></div>}
+                        <div className={`p-3 rounded-full ${emailForm.type === 'interview' ? 'bg-blue-100' : 'bg-slate-50'}`}>
+                          <ThumbsUp size={28} />
+                        </div>
+                        <p className="font-black uppercase tracking-widest text-sm">Mời Phỏng Vấn</p>
+                      </button>
+                    )}
                     <button
                       type="button"
-                      className={`p-5 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 relative overflow-hidden ${emailForm.type === 'interview' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md scale-[1.02]' : 'border-slate-200 bg-white text-slate-400 hover:border-slate-300'}`}
-                      onClick={() => setEmailForm({ ...emailForm, type: 'interview' })}
+                      className={`p-5 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 relative overflow-hidden ${emailForm.type === 'reject' ? 'border-rose-500 bg-rose-50 text-rose-700 shadow-md scale-[1.02]' : 'border-slate-200 bg-white text-slate-400 hover:border-slate-300'}`}
+                      onClick={() => setEmailForm({ ...emailForm, type: 'reject' })}
                     >
-                      {emailForm.type === 'interview' && <div className="absolute top-3 right-3 text-blue-500"><CheckCircle2 size={18} /></div>}
-                      <div className={`p-3 rounded-full ${emailForm.type === 'interview' ? 'bg-blue-100' : 'bg-slate-50'}`}>
-                        <ThumbsUp size={28} />
+                      {emailForm.type === 'reject' && <div className="absolute top-3 right-3 text-rose-500"><CheckCircle2 size={18} /></div>}
+                      <div className={`p-3 rounded-full ${emailForm.type === 'reject' ? 'bg-rose-100' : 'bg-slate-50'}`}>
+                        <ThumbsDown size={28} />
                       </div>
-                      <p className="font-black uppercase tracking-widest text-sm">Mời Phỏng Vấn</p>
+                      <p className="font-black uppercase tracking-widest text-sm">Từ Chối</p>
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className={`p-5 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 relative overflow-hidden ${emailForm.type === 'reject' ? 'border-rose-500 bg-rose-50 text-rose-700 shadow-md scale-[1.02]' : 'border-slate-200 bg-white text-slate-400 hover:border-slate-300'}`}
-                    onClick={() => setEmailForm({ ...emailForm, type: 'reject' })}
-                  >
-                    {emailForm.type === 'reject' && <div className="absolute top-3 right-3 text-rose-500"><CheckCircle2 size={18} /></div>}
-                    <div className={`p-3 rounded-full ${emailForm.type === 'reject' ? 'bg-rose-100' : 'bg-slate-50'}`}>
-                      <ThumbsDown size={28} />
-                    </div>
-                    <p className="font-black uppercase tracking-widest text-sm">Từ Chối</p>
-                  </button>
-                  {(emailModal.candidate?.localStatus === 'interviewing' || emailForm.type === 'offer') && (
-                    <button
-                      type="button"
-                      className={`p-5 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 relative overflow-hidden ${emailForm.type === 'offer' ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-md scale-[1.02]' : 'border-slate-200 bg-white text-slate-400 hover:border-slate-300'}`}
-                      onClick={() => setEmailForm({ ...emailForm, type: 'offer' })}
-                    >
-                      {emailForm.type === 'offer' && <div className="absolute top-3 right-3 text-emerald-500"><CheckCircle2 size={18} /></div>}
-                      <div className={`p-3 rounded-full ${emailForm.type === 'offer' ? 'bg-emerald-100' : 'bg-slate-50'}`}>
-                        <Sparkles size={28} />
-                      </div>
-                      <p className="font-black uppercase tracking-widest text-sm text-center leading-tight">Offer<br />Trúng Tuyển</p>
-                    </button>
-                  )}
+                    {(emailModal.candidate?.localStatus === 'interviewing' || emailForm.type === 'offer') && (
+                      <button
+                        type="button"
+                        className={`p-5 rounded-2xl border-2 transition-all flex flex-col items-center gap-3 relative overflow-hidden ${emailForm.type === 'offer' ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-md scale-[1.02]' : 'border-slate-200 bg-white text-slate-400 hover:border-slate-300'}`}
+                        onClick={() => setEmailForm({ ...emailForm, type: 'offer' })}
+                      >
+                        {emailForm.type === 'offer' && <div className="absolute top-3 right-3 text-emerald-500"><CheckCircle2 size={18} /></div>}
+                        <div className={`p-3 rounded-full ${emailForm.type === 'offer' ? 'bg-emerald-100' : 'bg-slate-50'}`}>
+                          <Sparkles size={28} />
+                        </div>
+                        <p className="font-black uppercase tracking-widest text-sm text-center leading-tight">Offer<br />Trúng Tuyển</p>
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div className="space-y-5 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
-                <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-3">2. Chi tiết thông tin</h4>
+                <h4 className="text-xs font-black text-slate-800 uppercase tracking-widest border-b border-slate-100 pb-3">
+                  {emailModal.candidate?.localStatus === 'rejected' ? "Chi tiết thông tin thư từ chối" : "2. Chi tiết thông tin"}
+                </h4>
                 {emailForm.type === 'interview' ? (
                   <>
                     {/* BẢN TIN LỰA CHỌN CỦA ỨNG VIÊN */}
@@ -1308,7 +1443,7 @@ export const EmailModal = ({ emailModal, closeEmailModal, emailForm, setEmailFor
                                 newPref = emailModal.candidate.interviewPreference;
                                 newLoc = newPref === 'online'
                                   ? "https://meet.google.com/abc-xyz-123 (Google Meet)"
-                                  : "Văn phòng JobAI - Tầng 5, Tòa nhà Innovation, Hà Nội";
+                                  : jobLocation;
                               }
                               setEmailForm({
                                 ...emailForm,
@@ -1343,7 +1478,7 @@ export const EmailModal = ({ emailModal, closeEmailModal, emailForm, setEmailFor
                           </button>
                           <button
                             type="button"
-                            onClick={() => setEmailForm({ ...emailForm, interviewPreference: 'offline', locationOrLink: "Văn phòng JobAI - Tầng 5, Tòa nhà Innovation, Hà Nội" })}
+                            onClick={() => setEmailForm({ ...emailForm, interviewPreference: 'offline', locationOrLink: jobLocation })}
                             className={`py-3 px-4 rounded-xl border-2 font-bold text-xs transition-all ${emailForm.interviewPreference === 'offline' ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'}`}
                           >
                             Trực tiếp (Offline)
@@ -1361,16 +1496,12 @@ export const EmailModal = ({ emailModal, closeEmailModal, emailForm, setEmailFor
                             <LinkIcon size={14} />
                           </div>
                           <input
-                            className="w-full pl-14 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-500 font-bold text-slate-700 disabled:opacity-75 disabled:cursor-not-allowed"
+                            className="w-full pl-14 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-blue-500 font-bold text-slate-700"
                             placeholder="Nhập link Google Meet / Zoom..."
                             value={emailForm.locationOrLink || ''}
                             onChange={(e) => setEmailForm({ ...emailForm, locationOrLink: e.target.value })}
-                            disabled={emailModal.candidate?.interviewPreference === 'online' && !emailForm.interviewPreferenceOverride}
                           />
                         </div>
-                        {emailModal.candidate?.interviewPreference === 'online' && !emailForm.interviewPreferenceOverride && (
-                          <p className="text-[10px] text-amber-600 font-bold">🔒 Khóa tự động theo yêu cầu Online của ứng viên. Chọn "Bỏ qua lựa chọn" để thay đổi.</p>
-                        )}
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -1380,16 +1511,12 @@ export const EmailModal = ({ emailModal, closeEmailModal, emailForm, setEmailFor
                             <MapPin size={14} />
                           </div>
                           <input
-                            className="w-full pl-14 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-500 font-bold text-slate-700 disabled:opacity-75 disabled:cursor-not-allowed"
+                            className="w-full pl-14 pr-4 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-indigo-500 font-bold text-slate-700"
                             placeholder="Nhập địa chỉ văn phòng..."
                             value={emailForm.locationOrLink || ''}
                             onChange={(e) => setEmailForm({ ...emailForm, locationOrLink: e.target.value })}
-                            disabled={emailModal.candidate?.interviewPreference === 'offline' && !emailForm.interviewPreferenceOverride}
                           />
                         </div>
-                        {emailModal.candidate?.interviewPreference === 'offline' && !emailForm.interviewPreferenceOverride && (
-                          <p className="text-[10px] text-amber-600 font-bold">🔒 Khóa tự động theo yêu cầu Trực tiếp của ứng viên. Chọn "Bỏ qua lựa chọn" để thay đổi.</p>
-                        )}
                       </div>
                     )}
 
@@ -1443,43 +1570,65 @@ export const EmailModal = ({ emailModal, closeEmailModal, emailForm, setEmailFor
                     </div>
                   </>
                 ) : (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Lý do từ chối (Mẫu)</label>
-                      <select className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-rose-500 font-bold text-slate-700" value={emailForm.rejectReason || ''} onChange={(e) => setEmailForm({ ...emailForm, rejectReason: e.target.value })}>
+                  <div className="space-y-6">
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Lý do từ chối chính</label>
+                        <button
+                          type="button"
+                          onClick={() => handleAiRefineText('rejectReason')}
+                          disabled={loadingRefinement || !emailForm.rejectReason}
+                          className="text-[10px] bg-emerald-50 text-emerald-600 px-2 py-1 rounded border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-bold flex items-center gap-1"
+                        >
+                          {loadingRefinement ? "Đang tối ưu..." : "✨ AI Tối Ưu Lý Do"}
+                        </button>
+                      </div>
+                      <select
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-rose-500 font-bold text-slate-700 text-xs"
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setEmailForm({ ...emailForm, rejectReason: e.target.value });
+                          }
+                        }}
+                      >
+                        <option value="">-- Chọn nhanh mẫu từ chối --</option>
                         <option value="Kinh nghiệm chuyên môn chưa đáp ứng đủ yêu cầu của vị trí này.">Chưa đủ kinh nghiệm chuyên môn</option>
                         <option value="Công ty đã tìm được ứng viên khác phù hợp hơn cho vị trí hiện tại.">Đã tuyển đủ số lượng / Có ứng viên khác</option>
                         <option value="Mức lương kỳ vọng chưa phù hợp với ngân sách dự kiến của công ty.">Ngân sách chưa phù hợp</option>
                       </select>
+                      <textarea
+                        className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-rose-500 font-medium text-slate-700 resize-none min-h-[80px]"
+                        placeholder="Nhập lý do từ chối chính..."
+                        value={emailForm.rejectReason || ''}
+                        onChange={(e) => setEmailForm({ ...emailForm, rejectReason: e.target.value })}
+                      ></textarea>
                     </div>
-                    <div className="space-y-2">
+
+                    <div className="space-y-3">
                       <div className="flex justify-between items-center">
                         <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">Nhận xét thêm / Trích xuất từ AI (Tùy chọn)</label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            try {
-                              const aiData = JSON.parse(emailModal.candidate?.aiSummary || '{}');
-                              const aiFeedback = aiData.evidence?.map(e => e.detail).join(' ') || "Chưa có nhận xét AI cụ thể.";
-                              setEmailForm({ ...emailForm, customNote: "Nhận xét AI: " + aiFeedback });
-                            } catch (e) {
-                              setEmailForm({ ...emailForm, customNote: "Hệ thống AI chưa phân tích xong CV này." });
-                            }
-                          }}
-                          className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded border border-indigo-200 hover:bg-indigo-100 transition-colors font-bold"
-                        >
-                          Fill AI Summary
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleAiRefineText('customNote')}
+                            disabled={loadingRefinement || !emailForm.customNote}
+                            className="text-[10px] bg-emerald-50 text-emerald-600 px-2 py-1 rounded border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-bold flex items-center gap-1"
+                          >
+                            {loadingRefinement ? "Đang tối ưu..." : "✨ AI Tối Ưu Phản Hồi"}
+                          </button>
+                        </div>
                       </div>
                       <textarea
                         className="w-full px-5 py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl outline-none focus:border-rose-500 font-medium text-slate-700 resize-none min-h-[100px]"
-                        placeholder="Nhập thêm nhận xét chi tiết, hoặc dùng nút Fill AI Summary để tự động điền đánh giá từ AI vào đây..."
+                        placeholder="Nhập thêm nhận xét chi tiết cho ứng viên..."
                         value={emailForm.customNote || ''}
                         onChange={(e) => setEmailForm({ ...emailForm, customNote: e.target.value })}
                       ></textarea>
                     </div>
                   </div>
                 )}
+
               </div>
             </div>
           ) : (
@@ -1543,6 +1692,87 @@ export const EmailModal = ({ emailModal, closeEmailModal, emailForm, setEmailFor
           )}
         </div>
       </div>
+
+      {refinePopup.isOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-xl overflow-hidden border border-white/20 animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+            
+            {/* Header */}
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-gradient-to-r from-emerald-500 to-teal-600 text-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                  <Sparkles size={20} />
+                </div>
+                <div>
+                  <h4 className="font-black uppercase tracking-tight text-base">Xem trước bản tối ưu AI</h4>
+                  <p className="text-[10px] opacity-85 uppercase font-bold tracking-wider">Cải thiện lỗi chính tả, câu từ & logic</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setRefinePopup({ ...refinePopup, isOpen: false })}
+                className="p-2 bg-white/10 hover:bg-white/20 rounded-full transition-all text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar bg-slate-50/50">
+              {/* Improvements */}
+              {refinePopup.improvements && refinePopup.improvements.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Điểm cải tiến nổi bật:</span>
+                  <div className="flex flex-wrap gap-2">
+                    {refinePopup.improvements.map((imp, idx) => (
+                      <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full border border-emerald-100 shadow-sm">
+                        <CheckCircle2 size={12} className="text-emerald-500" /> {imp}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Original */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Bản gốc của bạn:</span>
+                <div className="p-4 bg-slate-100/80 border border-slate-200 rounded-2xl text-slate-600 text-sm whitespace-pre-wrap italic">
+                  "{refinePopup.original}"
+                </div>
+              </div>
+
+              {/* Refined */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-1">
+                  <Sparkles size={12} /> Bản đề xuất AI tối ưu:
+                </span>
+                <div className="p-5 bg-emerald-50/50 border-2 border-emerald-200/60 rounded-3xl text-slate-800 text-sm font-medium whitespace-pre-wrap leading-relaxed shadow-inner">
+                  {refinePopup.refined}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-5 bg-white border-t border-slate-100 flex justify-end gap-3 shrink-0">
+              <button 
+                onClick={() => setRefinePopup({ ...refinePopup, isOpen: false })}
+                className="px-5 py-2.5 font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-all text-xs"
+              >
+                Giữ bản gốc
+              </button>
+              <button 
+                onClick={() => {
+                  setEmailForm({ ...emailForm, [refinePopup.fieldName]: refinePopup.refined });
+                  setRefinePopup({ ...refinePopup, isOpen: false });
+                }}
+                className="px-6 py-2.5 bg-emerald-600 text-white font-black rounded-xl hover:bg-emerald-700 shadow-lg shadow-emerald-200 transition-all text-xs flex items-center gap-1.5"
+              >
+                <CheckCircle2 size={14} /> Áp dụng chỉnh sửa
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 };

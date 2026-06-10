@@ -66,7 +66,7 @@ const CandidateMatching = () => {
     if (!candidate) return;
 
     try {
-      // CHỈ gửi email, KHÔNG tự động đổi trạng thái
+      // 1. Gửi email
       await axios.post(`${API_BASE_URL}/api/email/send-result`, {
         candidateEmail: candidate.email,
         candidateName: candidate.fullName,
@@ -80,12 +80,29 @@ const CandidateMatching = () => {
         level: emailForm.level
       });
 
-      alert(`✅ Đã gửi email thành công! Hãy chủ động cập nhật trạng thái ứng viên thủ công.`);
+      // 2. Tự động cập nhật trạng thái trong cơ sở dữ liệu
+      const statusMap = { interview: 'interviewing', offer: 'passed', reject: 'rejected' };
+      const newStatus = statusMap[emailForm.type];
+      if (newStatus) {
+        await axios.put(`${API_BASE_URL}/api/applications/update-status`, {
+          jobId: parseInt(id),
+          userId: candidate.id,
+          status: newStatus,
+          rejectReason: emailForm.type === 'reject' ? emailForm.rejectReason : null
+        });
+
+        // 3. Cập nhật state local ngay lập tức
+        setCandidates(prev => prev.map(can => 
+          can.id === candidate.id ? { ...can, localStatus: newStatus } : can
+        ));
+      }
+
+      alert(`✅ Đã gửi email và cập nhật trạng thái ứng viên thành công!`);
       setEmailModal({ isOpen: false, candidate: null });
 
     } catch (error) {
       console.error("Lỗi:", error);
-      alert("❌ Gửi email thất bại. Hãy kiểm tra Backend!");
+      alert("❌ Gửi email hoặc cập nhật trạng thái thất bại. Hãy kiểm tra Backend!");
     }
   };
 
@@ -139,7 +156,8 @@ const CandidateMatching = () => {
       const response = await axios.post(`${API_BASE_URL}/api/employer-ai/ai-scan`, {
         jobId: parseInt(id),
         prompt: aiScan.prompt,
-        employerId: employerId
+        employerId: employerId,
+        forceScan: aiScan.forceScan || false
       });
 
       setTimeout(() => {
@@ -239,7 +257,7 @@ const CandidateMatching = () => {
             <motion.div 
               layout key={can.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
               className="bg-white rounded-[2.5rem] p-8 border-2 border-slate-100 hover:border-blue-500/30 transition-all group shadow-sm hover:shadow-2xl hover:shadow-blue-500/5 flex flex-col cursor-pointer"
-              onClick={() => setCvModal({ isOpen: true, candidate: { ...can, cvUrl: getFullUrl(can.cvUrl) }})}
+              onClick={() => setCvModal({ isOpen: true, candidate: { ...can, cvUrl: getFullUrl(can.cvUrl) } })}
             >
               <div className="flex justify-between items-start mb-6">
                 <div className="w-16 h-16 bg-slate-50 rounded-2xl border border-slate-100 p-1 group-hover:scale-110 transition-transform flex items-center justify-center overflow-hidden">

@@ -80,7 +80,7 @@ const SuggestedJobsTab = ({ jobs, onViewDetail, toggleApplyJob, onApplyClick, ha
                 }
               }
             } catch (err) {
-              console.log("Lỗi lấy profile cho ID:", empId, err);
+              // Lỗi lấy profile cho ID
             }
           }
 

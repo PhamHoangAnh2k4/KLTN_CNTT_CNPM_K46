@@ -50,7 +50,6 @@ const LoginPage = () => {
       localStorage.setItem('lastLogin_userId', userId);
       localStorage.setItem('lastLogin_userAccount', JSON.stringify({ userId, role, fullName }));
 
-      console.log("Login Success:", { userId, role, fullName });
       
       // Điều hướng dựa trên Role
       if (role === 'admin') navigate('/admin');

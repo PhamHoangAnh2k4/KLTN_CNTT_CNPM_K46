@@ -6,6 +6,7 @@ import {
   Briefcase, DollarSign, Clock, GraduationCap, FileText, Loader2
 } from 'lucide-react';
 import axios from 'axios';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const CreateJobPage = () => {
   const navigate = useNavigate();
@@ -26,6 +27,8 @@ const CreateJobPage = () => {
   const [docFile, setDocFile] = useState(null);
   const [showSalaryDropdown, setShowSalaryDropdown] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showOptimizeModal, setShowOptimizeModal] = useState(false);
+  const [optimizedJd, setOptimizedJd] = useState({ description: '', requirements: '' });
 
   const salaryOptions = [
     "Thỏa thuận", "Dưới 5 Triệu", "5 - 10 Triệu", "10 - 15 Triệu",
@@ -37,6 +40,51 @@ const CreateJobPage = () => {
   };
 
   // --- QUẢN LÝ KỸ NĂNG ---
+  const handleSkillInputChange = (e) => {
+    const value = e.target.value;
+    if (value.includes(',')) {
+      const parts = value.split(',');
+      const newSkills = parts.slice(0, -1)
+        .map(s => s.trim().replace(/[.,\s]+$/, ''))
+        .filter(s => s.length > 0);
+      
+      const lastPart = parts[parts.length - 1];
+      
+      if (newSkills.length > 0) {
+        setSkills(prev => {
+          const updated = [...prev];
+          newSkills.forEach(s => {
+            if (!updated.includes(s)) updated.push(s);
+          });
+          return updated;
+        });
+      }
+      setFormData(prev => ({ ...prev, skillInput: lastPart }));
+    } else {
+      setFormData(prev => ({ ...prev, skillInput: value }));
+    }
+  };
+
+  const handleSkillPaste = (e) => {
+    e.preventDefault();
+    const pastedText = e.clipboardData.getData('text');
+    const parts = pastedText.split(',');
+    const newSkills = parts
+      .map(s => s.trim().replace(/[.,\s]+$/, ''))
+      .filter(s => s.length > 0);
+      
+    if (newSkills.length > 0) {
+      setSkills(prev => {
+        const updated = [...prev];
+        newSkills.forEach(s => {
+          if (!updated.includes(s)) updated.push(s);
+        });
+        return updated;
+      });
+    }
+    setFormData(prev => ({ ...prev, skillInput: '' }));
+  };
+
   const handleAddSkill = (e) => {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
@@ -71,6 +119,10 @@ const CreateJobPage = () => {
 
   const handleAIGenerateJD = async (e) => {
     e.preventDefault();
+    if (!formData.title) {
+      alert("Vui lòng nhập Tiêu đề vị trí tuyển dụng trước để AI tối ưu hóa JD chính xác nhất!");
+      return;
+    }
     if (!formData.description && !formData.requirements) {
       alert("Vui lòng nhập bản nháp Mô tả hoặc Yêu cầu công việc trước khi tối ưu!");
       return;
@@ -80,18 +132,30 @@ const CreateJobPage = () => {
 
     try {
       const res = await axios.post("http://localhost:8081/api/employer-ai/optimize-jd", {
+        title: formData.title,
         description: formData.description,
         requirements: formData.requirements
       });
 
       if (res.data) {
-        if (window.confirm("AI đã tối ưu xong. Bạn có muốn cập nhật ghi đè nội dung mới này không?")) {
-            setFormData(prev => ({
-              ...prev,
-              description: res.data.description || prev.description,
-              requirements: res.data.requirements || prev.requirements
-            }));
-        }
+        // Hàm chuẩn hóa dữ liệu trả về từ AI thành chuỗi có xuống dòng sạch sẽ
+        const formatAiField = (val, defaultVal = "") => {
+          if (!val) return defaultVal;
+          if (Array.isArray(val)) {
+            return val.map(item => item.trim()).filter(Boolean).join("\n");
+          }
+          if (typeof val === "string") {
+            // Thay thế các dấu phẩy đứng trước dấu gạch ngang (như ',-' hoặc '.,-') bằng dấu xuống dòng và dấu gạch ngang
+            return val.replace(/,\s*-/g, '\n-').trim();
+          }
+          return String(val);
+        };
+
+        setOptimizedJd({
+          description: formatAiField(res.data.description, formData.description),
+          requirements: formatAiField(res.data.requirements, formData.requirements)
+        });
+        setShowOptimizeModal(true);
       }
     } catch (err) {
       console.error("Lỗi khi tối ưu JD bằng AI:", err);
@@ -99,6 +163,15 @@ const CreateJobPage = () => {
     } finally {
       setIsGeneratingJD(false);
     }
+  };
+
+  const handleApplyOptimization = () => {
+    setFormData(prev => ({
+      ...prev,
+      description: optimizedJd.description,
+      requirements: optimizedJd.requirements
+    }));
+    setShowOptimizeModal(false);
   };
 
   // --- HÀM SUBMIT CHÍNH ---
@@ -199,11 +272,14 @@ const CreateJobPage = () => {
                       <button type="button" onClick={() => removeSkill(index)} className="hover:text-rose-400 transition-colors"><X size={14} /></button>
                     </span>
                   ))}
-                  <input
+                   <input
                     type="text" name="skillInput"
                     placeholder="Nhấn Enter để thêm..."
                     className="flex-1 bg-transparent outline-none text-sm font-bold min-w-[150px]"
-                    value={formData.skillInput} onChange={handleChange} onKeyDown={handleAddSkill}
+                    value={formData.skillInput}
+                    onChange={handleSkillInputChange}
+                    onKeyDown={handleAddSkill}
+                    onPaste={handleSkillPaste}
                   />
                 </div>
               </div>
@@ -407,6 +483,120 @@ const CreateJobPage = () => {
           </div>
         </form>
       </div>
+
+      {/* AI OPTIMIZATION PREVIEW MODAL */}
+      <AnimatePresence>
+        {showOptimizeModal && (
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-slate-50 rounded-[2.5rem] w-full max-w-5xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-300">
+              
+              {/* HEADER */}
+              <div className="flex justify-between items-center px-8 py-6 bg-white border-b border-slate-100 shrink-0 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600">
+                    <Sparkles size={20} className="animate-pulse" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-black text-slate-800 tracking-tight">So sánh & Xem trước bản tối ưu bằng AI</h2>
+                    <p className="text-slate-500 font-bold text-xs mt-0.5">Rà soát những cải tiến từ mô hình ngôn ngữ lớn để tăng tính chuyên nghiệp</p>
+                  </div>
+                </div>
+                <button 
+                  type="button"
+                  onClick={() => setShowOptimizeModal(false)}
+                  className="p-2.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 rounded-xl transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* BODY */}
+              <div className="p-8 overflow-y-auto custom-scrollbar flex-1 space-y-6">
+                
+                {/* SECTION 1: MÔ TẢ CÔNG VIỆC */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <Briefcase size={14} className="text-blue-500" /> Mô tả công việc (Job Description)
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* ORIGINAL */}
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-2">
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Bản gốc của bạn</span>
+                      </div>
+                      <p className="text-xs text-slate-500 leading-relaxed whitespace-pre-wrap font-medium max-h-[200px] overflow-y-auto custom-scrollbar">
+                        {formData.description || "(Để trống)"}
+                      </p>
+                    </div>
+
+                    {/* OPTIMIZED */}
+                    <div className="bg-gradient-to-br from-indigo-50/30 to-purple-50/30 p-5 rounded-2xl border border-indigo-100 space-y-2 relative">
+                      <div className="flex justify-between items-center pb-2 border-b border-indigo-100">
+                        <span className="text-[10px] font-black text-indigo-600 uppercase tracking-wider flex items-center gap-1">
+                          <Sparkles size={10} /> Bản tối ưu gợi ý
+                        </span>
+                      </div>
+                      <p className="text-xs text-indigo-950 leading-relaxed whitespace-pre-wrap font-semibold max-h-[200px] overflow-y-auto custom-scrollbar">
+                        {optimizedJd.description || "(Để trống)"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 2: YÊU CẦU ỨNG VIÊN */}
+                <div className="space-y-3">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                    <GraduationCap size={14} className="text-indigo-500" /> Yêu cầu ứng viên (Requirements)
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* ORIGINAL */}
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-2">
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Bản gốc của bạn</span>
+                      </div>
+                      <p className="text-xs text-slate-500 leading-relaxed whitespace-pre-wrap font-medium max-h-[200px] overflow-y-auto custom-scrollbar">
+                        {formData.requirements || "(Để trống)"}
+                      </p>
+                    </div>
+
+                    {/* OPTIMIZED */}
+                    <div className="bg-gradient-to-br from-indigo-50/30 to-purple-50/30 p-5 rounded-2xl border border-indigo-100 space-y-2 relative">
+                      <div className="flex justify-between items-center pb-2 border-b border-indigo-100">
+                        <span className="text-[10px] font-black text-indigo-600 uppercase tracking-wider flex items-center gap-1">
+                          <Sparkles size={10} /> Bản tối ưu gợi ý
+                        </span>
+                      </div>
+                      <p className="text-xs text-indigo-950 leading-relaxed whitespace-pre-wrap font-semibold max-h-[200px] overflow-y-auto custom-scrollbar">
+                        {optimizedJd.requirements || "(Để trống)"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+
+              {/* FOOTER */}
+              <div className="px-8 py-5 bg-white border-t border-slate-100 flex justify-end gap-3 shrink-0">
+                <button 
+                  type="button"
+                  onClick={() => setShowOptimizeModal(false)}
+                  className="px-6 py-2.5 text-slate-500 font-bold text-xs hover:bg-slate-100 rounded-xl transition-all"
+                >
+                  HỦY BỎ
+                </button>
+                <button 
+                  type="button"
+                  onClick={handleApplyOptimization}
+                  className="px-8 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl transition-all shadow-lg shadow-indigo-600/10 active:scale-95 flex items-center gap-2"
+                >
+                  ÁP DỤNG BẢN TỐI ƯU
+                </button>
+              </div>
+
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

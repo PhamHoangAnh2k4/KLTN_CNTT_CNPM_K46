@@ -66,6 +66,51 @@ const EditJobModal = ({ isOpen, onClose, onSave, jobData }) => {
   };
 
   // --- QUẢN LÝ KỸ NĂNG ---
+  const handleSkillInputChange = (e) => {
+    const value = e.target.value;
+    if (value.includes(',')) {
+      const parts = value.split(',');
+      const newSkills = parts.slice(0, -1)
+        .map(s => s.trim().replace(/[.,\s]+$/, ''))
+        .filter(s => s.length > 0);
+      
+      const lastPart = parts[parts.length - 1];
+      
+      if (newSkills.length > 0) {
+        setSkills(prev => {
+          const updated = [...prev];
+          newSkills.forEach(s => {
+            if (!updated.includes(s)) updated.push(s);
+          });
+          return updated;
+        });
+      }
+      setFormData(prev => ({ ...prev, skillInput: lastPart }));
+    } else {
+      setFormData(prev => ({ ...prev, skillInput: value }));
+    }
+  };
+
+  const handleSkillPaste = (e) => {
+    e.preventDefault();
+    const pastedText = e.clipboardData.getData('text');
+    const parts = pastedText.split(',');
+    const newSkills = parts
+      .map(s => s.trim().replace(/[.,\s]+$/, ''))
+      .filter(s => s.length > 0);
+      
+    if (newSkills.length > 0) {
+      setSkills(prev => {
+        const updated = [...prev];
+        newSkills.forEach(s => {
+          if (!updated.includes(s)) updated.push(s);
+        });
+        return updated;
+      });
+    }
+    setFormData(prev => ({ ...prev, skillInput: '' }));
+  };
+
   const handleAddSkill = (e) => {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
@@ -193,11 +238,14 @@ const EditJobModal = ({ isOpen, onClose, onSave, jobData }) => {
                         <button type="button" onClick={() => removeSkill(index)} className="hover:text-rose-400 transition-colors"><X size={14} /></button>
                       </span>
                     ))}
-                    <input
+                     <input
                       type="text" name="skillInput"
                       placeholder="Nhấn Enter để thêm..."
                       className="flex-1 bg-transparent outline-none text-sm font-bold min-w-[150px]"
-                      value={formData.skillInput} onChange={handleChange} onKeyDown={handleAddSkill}
+                      value={formData.skillInput}
+                      onChange={handleSkillInputChange}
+                      onKeyDown={handleAddSkill}
+                      onPaste={handleSkillPaste}
                     />
                   </div>
                 </div>

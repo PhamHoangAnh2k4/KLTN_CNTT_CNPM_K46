@@ -4,9 +4,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { LayoutDashboard, Users, Briefcase, Settings, LogOut, Sparkles, Flag } from 'lucide-react';
 import axios from 'axios';
 
-// Giữ lại reports và settings vì chưa có Database cho phần này
-import { initialReports, systemChartData } from '../../mockData/adminData';
-
 import OverviewTab from './components/OverviewTab';
 import UserTab from './components/UserTab';
 import JobTab from './components/JobTab';
@@ -23,7 +20,7 @@ const AdminDashboard = () => {
   
   const [users, setUsers] = useState([]);
   const [jobs, setJobs] = useState([]);
-  const [reports, setReports] = useState(initialReports); 
+  const [reports, setReports] = useState([]); 
 
   // TẢI DỮ LIỆU TỪ DATABASE SQL SERVER 
   useEffect(() => {
@@ -37,9 +34,12 @@ const AdminDashboard = () => {
         const jobRes = await axios.get('http://localhost:8081/api/admin/jobs');
         setJobs(jobRes.data);
 
+        // Lấy Reports thật
+        const reportRes = await axios.get('http://localhost:8081/api/admin/reports');
+        setReports(reportRes.data || []);
+
       } catch (error) {
         console.error("❌ Lỗi Backend (Spring Boot chưa chạy hoặc sai cổng):", error);
-        // Tắt tính năng mock fallback để bạn thấy rõ là có lấy được DB hay không
       }
     };
 
@@ -67,7 +67,7 @@ const AdminDashboard = () => {
     { id: 'dashboard', icon: LayoutDashboard, label: 'Tổng quan' },
     { id: 'users', icon: Users, label: 'Quản lý người dùng' },
     { id: 'jobs', icon: Briefcase, label: 'Kiểm duyệt việc làm', badge: jobs.filter(j=> (j.status || 'Chờ duyệt') ==='Chờ duyệt').length },
-    { id: 'reports', icon: Flag, label: 'Quản lý báo cáo', badge: reports.filter(r=>r.status==='Chờ xử lý').length }, 
+    { id: 'reports', icon: Flag, label: 'Quản lý báo cáo', badge: reports.filter(r => r.status !== 'Đã giải quyết').length }, 
     { id: 'settings', icon: Settings, label: 'Cài đặt hệ thống' },
   ];
 
@@ -175,7 +175,7 @@ const AdminDashboard = () => {
               {activeTab === 'users' && <UserTab users={users} setUsers={setUsers} />}
               {activeTab === 'jobs' && <JobTab jobs={jobs} setJobs={setJobs} />}
               {activeTab === 'reports' && <ReportTab reports={reports} setReports={setReports} />}
-              {activeTab === 'settings' && <SettingsTab systemChartData={systemChartData} />}
+              {activeTab === 'settings' && <SettingsTab />}
             </motion.div>
           </AnimatePresence>
         </main>

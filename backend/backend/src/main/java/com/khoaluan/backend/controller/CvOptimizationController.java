@@ -96,7 +96,12 @@ public class CvOptimizationController {
             boolean isGraphicDesignerTask = targetRole != null && 
                 (targetRole.toLowerCase().contains("design") || targetRole.toLowerCase().contains("thiết kế") || targetRole.toLowerCase().contains("graphic"));
 
-            if (isGraphicDesignerTask) {
+            if (!geminiData.containsKey("is_valid_cv")) {
+                geminiData.put("is_valid_cv", true);
+            }
+            boolean isValidCv = Boolean.TRUE.equals(geminiData.get("is_valid_cv"));
+
+            if (isGraphicDesignerTask && isValidCv) {
                 // Đảm bảo điểm ATS >= 85 và thông tin tương thích tích cực
                 geminiData.put("pre_evaluation_score", 85);
                 
@@ -157,91 +162,23 @@ public class CvOptimizationController {
                 }
             }
 
-            // 4. Tích hợp Qdrant Vector Search tìm việc làm tương thích
-            List<Map<String, Object>> suggestedJobs = new ArrayList<>();
-            try {
-                String cvText = springAiService.extractTextFromCvPdf(fileUrl);
-                if (cvText != null && !cvText.trim().isEmpty()) {
-                    List<Float> cvEmbedding = springAiService.getEmbeddingList(cvText);
-                    if (cvEmbedding != null && !cvEmbedding.isEmpty()) {
-                        // Lưu vector vào Qdrant candidate_cvs
-                        Map<String, String> cvMeta = new HashMap<>();
-                        cvMeta.put("userId", String.valueOf(userId));
-                        cvMeta.put("cvUrl", fileUrl);
-                        cvMeta.put("originalName", file.getOriginalFilename());
-                        qdrantService.upsertCvVector(Long.valueOf(userId), cvEmbedding, cvMeta);
-
-                        if (!isGraphicDesignerTask) {
-                            // Tìm các job phù hợp nhất trong Qdrant job_postings
-                            List<ScoredPoint> scoredJobs = qdrantService.searchSimilarJobs(cvEmbedding, 3);
-                            for (ScoredPoint sp : scoredJobs) {
-                                long jobId = sp.getId().getNum();
-                                int matchPercent = (int) Math.round(Math.max(0, sp.getScore()) * 100);
-                                jobRepository.findById((int) jobId).ifPresent(job -> {
-                                    if ("Đang hiển thị".equalsIgnoreCase(job.getStatus())) {
-                                        Map<String, Object> jobMap = new HashMap<>();
-                                        jobMap.put("id", job.getJobId());
-                                        jobMap.put("title", job.getTitle());
-                                        jobMap.put("salary", job.getSalary());
-                                        jobMap.put("workLocation", job.getWorkLocation());
-                                        jobMap.put("matchPercent", matchPercent);
-                                        suggestedJobs.add(jobMap);
-                                    }
-                                });
-                            }
-                        }
-                    }
-                }
-            } catch (Exception qe) {
-                System.err.println("⚠️ Bỏ qua lỗi Qdrant: " + qe.getMessage());
-            }
-
-            // Nếu là tác vụ Graphic Designer, xử lý gợi ý công việc thiết kế riêng biệt
-            if (isGraphicDesignerTask) {
-                try {
-                    List<Job> allJobs = jobRepository.findAll();
-                    for (Job job : allJobs) {
-                        if ("Đang hiển thị".equalsIgnoreCase(job.getStatus())) {
-                            String titleLower = job.getTitle().toLowerCase();
-                            if (titleLower.contains("design") || titleLower.contains("thiết kế") || titleLower.contains("graphic")) {
-                                Map<String, Object> jobMap = new HashMap<>();
-                                jobMap.put("id", job.getJobId());
-                                jobMap.put("title", job.getTitle());
-                                jobMap.put("salary", job.getSalary());
-                                jobMap.put("workLocation", job.getWorkLocation());
-                                jobMap.put("matchPercent", 100);
-                                suggestedJobs.add(jobMap);
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    System.err.println("⚠️ Lỗi tìm job thiết kế: " + e.getMessage());
-                }
-
-                if (suggestedJobs.isEmpty()) {
-                    Map<String, Object> mockJob = new HashMap<>();
-                    mockJob.put("id", 9999);
-                    mockJob.put("title", "Nhân Viên Thiết Kế Đồ Họa (Graphic Designer)");
-                    mockJob.put("salary", "15 - 25 Triệu");
-                    mockJob.put("workLocation", "Hà Nội / TP.HCM");
-                    mockJob.put("matchPercent", 100);
-                    suggestedJobs.add(mockJob);
-                }
-            }
-            geminiData.put("suggested_jobs", suggestedJobs);
+            // 4. (Đã lược bỏ phần gợi ý công việc để tăng tốc độ xử lý tối ưu CV)
 
             // 5. Lưu trữ & Thông báo (Database)
             // Ghi vào ActivityLog
-            String logDesc = "User " + userId + " đã phân tích CV cho vị trí " + targetRole + ". Điểm: " + score;
+            String logDesc = isValidCv 
+                ? "User " + userId + " đã phân tích CV cho vị trí " + targetRole + ". Điểm: " + score
+                : "User " + userId + " đã tải lên tài liệu không phải CV cho vị trí " + targetRole;
             ActivityLog log = new ActivityLog(userId, "TỐI ƯU CV", logDesc);
             activityLogRepository.save(log);
 
             // Ghi vào Notification
             Notification notif = new Notification();
             notif.setUserId(userId);
-            notif.setTitle("Tối ưu CV hoàn tất");
-            notif.setMessage("Kết quả quét CV cho vị trí " + targetRole + " đã hoàn tất. Điểm của bạn là " + score
-                    + "/100. Xem ngay gợi ý sửa đổi!");
+            notif.setTitle(isValidCv ? "Tối ưu CV hoàn tất" : "Tài liệu tải lên không hợp lệ");
+            notif.setMessage(isValidCv 
+                    ? "Kết quả quét CV cho vị trí " + targetRole + " đã hoàn tất. Điểm của bạn là " + score + "/100. Xem ngay gợi ý sửa đổi!"
+                    : "Tài liệu tải lên cho vị trí " + targetRole + " được hệ thống xác định không phải là CV hợp lệ. Xem chi tiết!");
             notif.setType("system");
             notif.setIsRead(false);
             notif.setLink("/candidate/ai-optimize");
@@ -257,8 +194,21 @@ public class CvOptimizationController {
         } catch (Exception e) {
             System.err.println("❌ Lỗi xử lý analyzeAndOptimizeCv: " + e.getMessage());
             e.printStackTrace();
+            
+            String friendlyMsg = "Lỗi trong quá trình tối ưu CV: " + e.getMessage();
+            String msg = e.getMessage() != null ? e.getMessage() : "";
+            if (msg.contains("503") || msg.contains("UNAVAILABLE") || msg.contains("high demand")) {
+                friendlyMsg = "Hệ thống AI hiện đang quá tải (503 Service Unavailable). Vui lòng thử lại sau vài giây.";
+            } else if (msg.contains("429") || msg.contains("RESOURCE_EXHAUSTED") || msg.contains("rate limit") || msg.contains("limit")) {
+                friendlyMsg = "Hệ thống AI đã vượt quá giới hạn số lượt gọi (429 Rate Limit). Vui lòng đợi một lát và thử lại.";
+            } else if (msg.contains("403") || msg.contains("PERMISSION_DENIED") || msg.contains("API key") || msg.contains("leaked")) {
+                friendlyMsg = "Không thể kết nối với AI (403 Permission Denied / API Key không hợp lệ). Vui lòng liên hệ quản trị viên.";
+            } else if (msg.contains("400") || msg.contains("BAD_REQUEST")) {
+                friendlyMsg = "Yêu cầu gửi tới AI không hợp lệ hoặc tài liệu bị lỗi cấu trúc (400 Bad Request).";
+            }
+            
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", "Lỗi trong quá trình tối ưu CV: " + e.getMessage()));
+                    .body(Map.of("error", friendlyMsg));
         }
     }
 }

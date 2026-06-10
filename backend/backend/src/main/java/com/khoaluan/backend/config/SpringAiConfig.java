@@ -3,11 +3,13 @@ package com.khoaluan.backend.config;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.OpenAiEmbeddingModel;
+import org.springframework.ai.openai.OpenAiEmbeddingOptions;
+import org.springframework.ai.document.MetadataMode;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.openai.api.OpenAiApi;
-import org.springframework.web.client.RestClient;
 
 @Configuration
 public class SpringAiConfig {
@@ -24,6 +26,17 @@ public class SpringAiConfig {
     @Bean
     public OpenAiChatModel geminiChatModel(OpenAiApi geminiOpenAiApi) {
         return new OpenAiChatModel(geminiOpenAiApi);
+    }
+
+    @Bean
+    public OpenAiEmbeddingModel geminiEmbeddingModel(OpenAiApi geminiOpenAiApi) {
+        // Sử dụng model gemini-embedding-2 của Gemini (kích thước 768 chiều tương thích Qdrant)
+        return new OpenAiEmbeddingModel(geminiOpenAiApi,
+                MetadataMode.ALL,
+                OpenAiEmbeddingOptions.builder()
+                        .withModel("gemini-embedding-2")
+                        .withDimensions(768)
+                        .build());
     }
 
     @Bean(name = "flashChatClient")

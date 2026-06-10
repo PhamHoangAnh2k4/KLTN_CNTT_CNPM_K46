@@ -105,7 +105,8 @@ const JobCandidatesPage = () => {
       const response = await axios.post(`${API_BASE_URL}/api/employer-ai/ai-scan`, {
         jobId: parseInt(id),
         prompt: aiScan.prompt,
-        employerId: employerId
+        employerId: employerId,
+        forceScan: aiScan.forceScan || false
       });
       setTimeout(() => {
         if (response.data && response.data.warning) {
@@ -434,13 +435,17 @@ const JobCandidatesPage = () => {
                   >
                     {/* CHECKBOX */}
                     <td className="p-5 pl-8">
-                      <input
-                        type="checkbox"
-                        className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        checked={selectedCandidates.includes(candidate.id)}
-                        onChange={() => handleSelectRow(candidate.id)}
-                        onClick={(e) => e.stopPropagation()}
-                      />
+                      {candidate.localStatus !== 'rejected' ? (
+                        <input
+                          type="checkbox"
+                          className="w-5 h-5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                          checked={selectedCandidates.includes(candidate.id)}
+                          onChange={() => handleSelectRow(candidate.id)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <span className="text-slate-300 font-bold">-</span>
+                      )}
                     </td>
 
                     {/* INFO ỨNG VIÊN */}
@@ -493,23 +498,25 @@ const JobCandidatesPage = () => {
                         <button
                           onClick={() => setCvModal({ isOpen: true, candidate: { ...candidate, cvUrl: getFullUrl(candidate.cvUrl) } })}
                           className="p-2.5 text-slate-500 hover:text-blue-600 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-200 rounded-xl transition-all shadow-sm hover:shadow-md hover:-translate-y-1"
-                          title="Xem CV"
+                          title="Xem thông tin"
                         >
                           <FileText size={20} strokeWidth={2.5} />
                         </button>
 
                         {/* Gửi Email Phỏng vấn */}
-                        <button
-                          onClick={() => { setEmailForm(prev => ({ ...prev, type: 'interview' })); setEmailModal({ isOpen: true, candidate }); }}
-                          className="p-2.5 text-slate-500 hover:text-amber-600 bg-white hover:bg-amber-50 border border-slate-200 hover:border-amber-200 rounded-xl transition-all shadow-sm hover:shadow-md hover:-translate-y-1"
-                          title="Hẹn phỏng vấn"
-                        >
-                          <Mail size={20} strokeWidth={2.5} />
-                        </button>
+                        {candidate.localStatus !== 'rejected' && (
+                          <button
+                            onClick={() => { setEmailForm(prev => ({ ...prev, type: 'interview' })); setEmailModal({ isOpen: true, candidate }); }}
+                            className="p-2.5 text-slate-500 hover:text-amber-600 bg-white hover:bg-amber-50 border border-slate-200 hover:border-amber-200 rounded-xl transition-all shadow-sm hover:shadow-md hover:-translate-y-1"
+                            title="Hẹn phỏng vấn"
+                          >
+                            <Mail size={20} strokeWidth={2.5} />
+                          </button>
+                        )}
 
                         {/* Gửi Email Từ chối */}
                         <button
-                          onClick={() => { setEmailForm(prev => ({ ...prev, type: 'reject' })); setEmailModal({ isOpen: true, candidate }); }}
+                          onClick={() => { setEmailForm(prev => ({ ...prev, type: 'reject', rejectReason: candidate.rejectReason || 'Kinh nghiệm chuyên môn chưa đáp ứng đủ yêu cầu của vị trí này.' })); setEmailModal({ isOpen: true, candidate }); }}
                           className="p-2.5 text-slate-500 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 rounded-xl transition-all shadow-sm hover:shadow-md hover:-translate-y-1"
                           title="Từ chối ứng viên"
                         >

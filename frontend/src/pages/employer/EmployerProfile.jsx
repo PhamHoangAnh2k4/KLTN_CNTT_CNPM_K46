@@ -90,7 +90,7 @@ const EmployerProfile = () => {
           resetForm();
         }
       } catch (error) {
-        console.log("User chưa có hồ sơ hoặc lỗi kết nối. Hiển thị form trống.");
+        // User chua co ho so hoac loi ket noi, reset form rong
         resetForm();
       } finally {
         setIsFetching(false);

@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
-import { mockStats } from '../../mockData/employerData';
 import EditJobModal from './EditJobModal';
 
 const EmployerHome = () => {

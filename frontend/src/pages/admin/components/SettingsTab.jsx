@@ -3,7 +3,7 @@ import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Save, Activity, Settings, History, Monitor, Smartphone, 
-  LogIn, LogOut, CheckCircle2, Ban, X, Shield, Server, Globe, Loader2, Filter, User 
+  LogIn, LogOut, CheckCircle2, Ban, X, Shield, Server, Globe, Loader2, Filter
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -216,6 +216,11 @@ const SettingsTab = () => {
     return null;
   };
 
+  const sortedLogs = [...logs].sort((a, b) => {
+    if (a.id && b.id) return b.id - a.id;
+    return 0;
+  });
+
   return (
     <motion.div 
       variants={containerVariants}
@@ -354,11 +359,14 @@ const SettingsTab = () => {
               {isLoadingLogs ? (
                  <div className="py-10 flex justify-center"><Loader2 className="animate-spin text-slate-400" /></div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {logs.slice(0, 3).map((log) => (
-                    <div key={log.id} className="p-5 bg-slate-50/80 rounded-2xl border border-slate-100 hover:border-blue-200 hover:bg-blue-50/50 hover:shadow-md transition-all group cursor-default flex flex-col justify-between">
-                      <div className="flex items-start gap-4 mb-4">
-                        {/* Hiển thị Ảnh gốc (Avatar) của Admin */}
+                <div className="overflow-hidden border border-slate-200/80 rounded-[2rem] bg-white shadow-sm divide-y divide-slate-100/80">
+                  {sortedLogs.slice(0, 5).map((log) => (
+                    <div 
+                      key={log.id} 
+                      className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/50 transition-all group"
+                    >
+                      <div className="flex items-center gap-4 flex-1">
+                        {/* Avatar & Icon */}
                         <div className="relative shrink-0 group-hover:scale-110 transition-transform">
                           <img 
                             src={`https://ui-avatars.com/api/?name=${encodeURIComponent(log.adminName || 'Admin')}&background=2563eb&color=fff&bold=true`} 
@@ -367,30 +375,32 @@ const SettingsTab = () => {
                             onError={(e) => { e.target.src = 'https://ui-avatars.com/api/?name=Admin&background=2563eb&color=fff&bold=true'; }}
                           />
                           <div className={`absolute -bottom-1 -right-1 p-0.5 rounded-full border border-white ${log.color || 'bg-slate-50 text-slate-600'}`}>
-                            {renderLogIcon(log.iconType, 12)}
+                            {renderLogIcon(log.iconType, 11)}
                           </div>
                         </div>
-                        <div>
-                          {/* Tên Admin */}
-                          {log.adminName && (
-                            <div className="flex items-center gap-1 mb-1">
-                              <User size={11} className="text-blue-500" />
-                              <span className="text-[11px] font-black text-blue-600 uppercase tracking-wide">{log.adminName}</span>
-                            </div>
-                          )}
-                          <p className="font-bold text-slate-800 text-sm line-clamp-2">
+                        
+                        {/* Log Info */}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="text-xs font-black text-blue-600 uppercase tracking-wider">{log.adminName || "Hệ thống"}</span>
+                            {log.adminEmail && <span className="text-[10px] text-slate-400 font-bold hidden sm:inline">({log.adminEmail})</span>}
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300 hidden sm:inline"></span>
+                            <span className="text-xs font-semibold text-slate-400">{log.time}</span>
+                          </div>
+                          <p className="font-bold text-slate-700 text-sm leading-snug">
                             {typeof log.action === 'object' ? (log.action[lang] || log.action['vi']) : log.actionType}
                           </p>
-                          <p className="text-xs font-semibold text-slate-500 mt-1">{log.time}</p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 px-3 py-2 bg-white rounded-xl w-fit border border-slate-200 shadow-sm">
+
+                      {/* Device badge */}
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl w-fit self-start md:self-auto shrink-0 shadow-sm text-slate-500 group-hover:bg-white transition-colors">
                         {log.device?.includes('iPhone') || log.device?.includes('Android') ? (
                           <Smartphone size={14} className="text-slate-400" />
                         ) : (
                           <Monitor size={14} className="text-slate-400" />
                         )}
-                        <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">{log.device}</span>
+                        <span className="text-[10px] font-black uppercase tracking-wider">{log.device}</span>
                       </div>
                     </div>
                   ))}
@@ -432,46 +442,53 @@ const SettingsTab = () => {
                 </button>
               </div>
               
-              <div className="p-6 md:p-8 overflow-y-auto flex-1 custom-scrollbar space-y-4">
-                {logs.map((log) => (
-                  <div key={log.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-5 bg-white rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-lg hover:shadow-blue-500/5 transition-all gap-4 group">
-                    <div className="flex items-start gap-4">
-                      {/* Hiển thị Ảnh gốc (Avatar) của Admin trong Modal */}
-                      <div className="relative shrink-0 group-hover:scale-110 transition-transform">
-                        <img 
-                          src={`https://ui-avatars.com/api/?name=${encodeURIComponent(log.adminName || 'Admin')}&background=2563eb&color=fff&bold=true`} 
-                          className="w-11 h-11 rounded-xl object-cover border border-slate-200" 
-                          alt="Admin Avatar"
-                          onError={(e) => { e.target.src = 'https://ui-avatars.com/api/?name=Admin&background=2563eb&color=fff&bold=true'; }}
-                        />
-                        <div className={`absolute -bottom-1 -right-1 p-0.5 rounded-full border border-white ${log.color || 'bg-slate-50 text-slate-600'}`}>
-                          {renderLogIcon(log.iconType, 12)}
+              <div className="p-6 md:p-8 overflow-y-auto flex-1 custom-scrollbar">
+                <div className="overflow-hidden border border-slate-200/80 rounded-[2rem] bg-white shadow-sm divide-y divide-slate-100/80">
+                  {sortedLogs.map((log) => (
+                    <div 
+                      key={log.id} 
+                      className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/50 transition-all group"
+                    >
+                      <div className="flex items-center gap-4 flex-1">
+                        {/* Avatar & Icon */}
+                        <div className="relative shrink-0 group-hover:scale-110 transition-transform">
+                          <img 
+                            src={`https://ui-avatars.com/api/?name=${encodeURIComponent(log.adminName || 'Admin')}&background=2563eb&color=fff&bold=true`} 
+                            className="w-11 h-11 rounded-xl object-cover border border-slate-200" 
+                            alt="Admin Avatar"
+                            onError={(e) => { e.target.src = 'https://ui-avatars.com/api/?name=Admin&background=2563eb&color=fff&bold=true'; }}
+                          />
+                          <div className={`absolute -bottom-1 -right-1 p-0.5 rounded-full border border-white ${log.color || 'bg-slate-50 text-slate-600'}`}>
+                            {renderLogIcon(log.iconType, 11)}
+                          </div>
+                        </div>
+                        
+                        {/* Log Info */}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            <span className="text-xs font-black text-blue-600 uppercase tracking-wider">{log.adminName || "Hệ thống"}</span>
+                            {log.adminEmail && <span className="text-[10px] text-slate-400 font-bold hidden sm:inline">({log.adminEmail})</span>}
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300 hidden sm:inline"></span>
+                            <span className="text-xs font-semibold text-slate-400">{log.time}</span>
+                          </div>
+                          <p className="font-bold text-slate-700 text-sm leading-snug">
+                            {typeof log.action === 'object' ? (log.action[lang] || log.action['vi']) : log.actionType}
+                          </p>
                         </div>
                       </div>
-                      <div>
-                        {/* Tên Admin (nếu có) */}
-                        {log.adminName && (
-                          <div className="flex items-center gap-1 mb-1">
-                            <span className="text-[11px] font-black text-blue-600 uppercase tracking-wide">{log.adminName}</span>
-                          </div>
+
+                      {/* Device badge */}
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl w-fit self-start md:self-auto shrink-0 shadow-sm text-slate-500 group-hover:bg-white transition-colors">
+                        {log.device?.includes('iPhone') || log.device?.includes('Android') ? (
+                          <Smartphone size={14} className="text-slate-400" />
+                        ) : (
+                          <Monitor size={14} className="text-slate-400" />
                         )}
-                        <p className="font-bold text-slate-800 text-base">
-                          {log.action[lang] || log.action['vi']}
-                        </p>
-                        <p className="text-sm font-semibold text-slate-500 mt-1">{log.time}</p>
+                        <span className="text-[10px] font-black uppercase tracking-wider">{log.device}</span>
                       </div>
                     </div>
-                    
-                    <div className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 rounded-xl shrink-0 border border-slate-100 group-hover:bg-white transition-colors">
-                      {log.device?.includes('iPhone') || log.device?.includes('Android') ? (
-                        <Smartphone size={16} className="text-slate-400" />
-                      ) : (
-                        <Monitor size={16} className="text-slate-400" />
-                      )}
-                      <span className="text-xs font-black uppercase tracking-wider text-slate-600">{log.device}</span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
 
               <div className="px-8 py-5 bg-slate-50/80 backdrop-blur-xl border-t border-slate-200/60 flex justify-end shrink-0">

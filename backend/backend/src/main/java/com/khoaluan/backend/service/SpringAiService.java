@@ -2,11 +2,20 @@ package com.khoaluan.backend.service;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.openai.OpenAiEmbeddingModel;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.ai.model.Media;
 import org.springframework.http.MediaType;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,24 +30,38 @@ public class SpringAiService {
 
     private final ChatClient flashClient;
     private final ChatClient proClient;
+    private final OpenAiEmbeddingModel embeddingModel;
+
+    @Value("${gemini.api.key}")
+    private String geminiApiKey;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public SpringAiService(@Qualifier("flashChatClient") ChatClient flashClient,
-                           @Qualifier("proChatClient") ChatClient proClient) {
+                           @Qualifier("proChatClient") ChatClient proClient,
+                           OpenAiEmbeddingModel embeddingModel) {
         this.flashClient = flashClient;
         this.proClient = proClient;
+        this.embeddingModel = embeddingModel;
     }
 
     // =========================================================================
     // FEATURE 1: JD AI OPTIMIZATION (Flash)
     // =========================================================================
-    public String optimizeJd(String draftDescription, String draftRequirements) {
-        String promptText = "Bạn là chuyên gia tuyển dụng cấp cao. Hãy tối ưu hóa văn bản nháp sau thành Mô tả công việc và Yêu cầu ứng viên chuyên nghiệp, loại bỏ câu chữ lủng củng.\n\n"
-                + "--- Bản nháp Mô tả công việc ---\n" + draftDescription + "\n\n"
-                + "--- Bản nháp Yêu cầu ứng viên ---\n" + draftRequirements + "\n\n"
-                + "Trả về CHỈ JSON định dạng:\n"
+    public String optimizeJd(String jobTitle, String draftDescription, String draftRequirements) {
+        String promptText = "Bạn là chuyên gia tuyển dụng cấp cao (Senior Recruiter/HR Specialist).\n"
+                + "Nhiệm vụ của bạn là tối ưu hóa bản nháp Mô tả công việc (JD) và Yêu cầu ứng viên cho vị trí: \"" + jobTitle + "\".\n\n"
+                + "--- YÊU CẦU QUAN TRỌNG ---\n"
+                + "1. Bản JD tối ưu phải tuyệt đối dựa trên tên công việc \"" + jobTitle + "\".\n"
+                + "2. Nếu nội dung nháp do người dùng nhập quá ngắn, sơ sài hoặc vô nghĩa (ví dụ: \"ád\", \"abc\", \"test\"...), bạn phải tự động bổ sung và sinh ra nội dung Mô tả công việc và Yêu cầu ứng viên chuẩn mực, chuyên nghiệp và đầy đủ cho vị trí \"" + jobTitle + "\" này.\n"
+                + "3. Định dạng đầu ra của cả 2 trường \"description\" và \"requirements\" bắt buộc phải được trình bày rõ ràng dưới dạng danh sách gạch đầu dòng (sử dụng dấu gạch đầu dòng '-'), mỗi ý bắt đầu ở một dòng mới bằng ký tự xuống dòng '\\n', tuyệt đối KHÔNG phân tách hoặc nối các ý gạch đầu dòng bằng dấu phẩy ',' hay viết thành đoạn văn dài lê thê.\n"
+                + "4. Mỗi phần tối ưu cần ngắn gọn, đi thẳng vào vấn đề, đúng định dạng chuyên nghiệp của tin tuyển dụng.\n\n"
+                + "--- Bản nháp Mô tả công việc hiện tại ---\n" + draftDescription + "\n\n"
+                + "--- Bản nháp Yêu cầu ứng viên hiện tại ---\n" + draftRequirements + "\n\n"
+                + "Trả về duy nhất JSON định dạng sau (không chứa ký tự markdown hay văn bản ngoài JSON):\n"
                 + "{\n"
-                + "  \"description\": \"(Mô tả công việc đã tối ưu, dùng gạch đầu dòng)\",\n"
-                + "  \"requirements\": \"(Yêu cầu ứng viên đã tối ưu, dùng gạch đầu dòng)\"\n"
+                + "  \"description\": \"(Mô tả công việc đã tối ưu, dùng gạch đầu dòng - )\",\n"
+                + "  \"requirements\": \"(Yêu cầu ứng viên đã tối ưu, dùng gạch đầu dòng - )\"\n"
                 + "}";
 
         return flashClient.prompt()
@@ -108,7 +131,7 @@ public class SpringAiService {
     // =========================================================================
     // LEGACY METHODS REWRITTEN FOR COMPATIBILITY (Flash)
     // =========================================================================
-    private String extractTextUsingPdfBox(byte[] fileBytes) {
+    public String extractTextUsingPdfBox(byte[] fileBytes) {
         try (org.apache.pdfbox.pdmodel.PDDocument document = org.apache.pdfbox.Loader.loadPDF(fileBytes)) {
             org.apache.pdfbox.text.PDFTextStripper stripper = new org.apache.pdfbox.text.PDFTextStripper();
             return stripper.getText(document);
@@ -116,6 +139,21 @@ public class SpringAiService {
             System.err.println("⚠️ Lỗi trích xuất PDF bằng PDFBox: " + e.getMessage());
             return null;
         }
+    }
+
+    public String extractTextFromCvPdf(byte[] fileBytes, String contentType, String originalFilename) throws Exception {
+        if ("application/pdf".equalsIgnoreCase(contentType) || (originalFilename != null && originalFilename.toLowerCase().endsWith(".pdf"))) {
+            String pdfText = extractTextUsingPdfBox(fileBytes);
+            if (pdfText != null && !pdfText.trim().isEmpty()) {
+                return pdfText;
+            }
+        }
+
+        final String finalContentType = contentType != null ? contentType : "image/jpeg";
+        return flashClient.prompt()
+                .user(u -> u.text("Hãy trích xuất toàn bộ nội dung văn bản của CV này một cách đầy đủ và trung thực nhất.")
+                        .media(new Media(MediaType.valueOf(finalContentType), fileBytes)))
+                .call().content();
     }
 
     public String extractTextFromCvPdf(String fileUrl) throws Exception {
@@ -137,18 +175,7 @@ public class SpringAiService {
             contentType = fileUrl.toLowerCase().endsWith(".pdf") ? "application/pdf" : "image/jpeg";
         }
 
-        if ("application/pdf".equalsIgnoreCase(contentType) || fileUrl.toLowerCase().endsWith(".pdf")) {
-            String pdfText = extractTextUsingPdfBox(fileBytes);
-            if (pdfText != null && !pdfText.trim().isEmpty()) {
-                return pdfText;
-            }
-        }
-
-        final String finalContentType = contentType;
-        return flashClient.prompt()
-                .user(u -> u.text("Hãy trích xuất toàn bộ nội dung văn bản của CV này một cách đầy đủ và trung thực nhất.")
-                        .media(new Media(MediaType.valueOf(finalContentType), fileBytes)))
-                .call().content();
+        return extractTextFromCvPdf(fileBytes, contentType, fileUrl);
     }
     
     public String optimizeCv(MultipartFile file, String targetRole) throws Exception {
@@ -168,15 +195,20 @@ public class SpringAiService {
         final String finalCvText = cvText;
         final String finalContentType = contentType;
 
-        String prompt = "Bạn là một Chuyên gia Nhân sự. Hãy phân tích CV của ứng viên cho vị trí ứng tuyển mục tiêu là: '" + targetRole + "'. \n"
-                + (isPdf ? "\n--- NỘI DUNG CV ---\n" + finalCvText + "\n" : "")
-                + "\nHãy đưa ra phân tích và đánh giá dưới dạng JSON với cấu trúc chính xác sau:\n"
+        String prompt = "Bạn là một Chuyên gia Nhân sự. Hãy phân tích tài liệu/CV của ứng viên cho vị trí ứng tuyển mục tiêu là: '" + targetRole + "'. \n"
+                + "NHIỆM VỤ QUAN TRỌNG NHẤT: Trước tiên hãy xác định xem tài liệu được tải lên có thực sự là một Bản tóm tắt lý lịch/CV/Resume hợp lệ của một cá nhân hay không.\n"
+                + "- Một CV/Resume hợp lệ PHẢI chứa thông tin giới thiệu cá nhân, kỹ năng, kinh nghiệm làm việc hoặc học vấn.\n"
+                + "- Các tài liệu dạng đề thi, câu hỏi trắc nghiệm, checklist bài học, tài liệu lập trình, giáo trình, bài báo, danh sách câu hỏi ôn tập (như Front-End Essentials Checklist...) TUYỆT ĐỐI KHÔNG phải là CV ứng viên.\n\n"
+                + "Hãy trả về một chuỗi JSON hợp lệ theo định dạng chính xác sau (Không có Markdown ```json):\n"
                 + "{\n"
-                + "  \"target_role_match\": {\"is_relevant\": true, \"message\": \"(Đánh giá độ phù hợp của CV với vị trí mục tiêu)\"},\n"
-                + "  \"pre_evaluation_score\": 80,\n"
-                + "  \"optimization_details\": [{\"section\": \"(Tên phần trong CV)\", \"status\": \"(Lỗi/Cần cải thiện/Tốt)\", \"advice\": \"(Lời khuyên chi tiết)\"}],\n"
+                + "  \"is_valid_cv\": (true nếu là CV/Resume hợp lệ, false nếu là tài liệu dạng khác),\n"
+                + "  \"invalid_reason\": \"(Điền lý do cụ thể tại sao tài liệu này không phải là CV, ví dụ: 'Tài liệu là một danh sách câu hỏi ôn tập / checklist Front-End, không phải CV giới thiệu bản thân của ứng viên.')\",\n"
+                + "  \"target_role_match\": {\"is_relevant\": (true/false), \"message\": \"(Đánh giá độ phù hợp của CV với vị trí mục tiêu)\"},\n"
+                + "  \"pre_evaluation_score\": (Điểm đánh giá từ 0 đến 100. Nếu is_valid_cv = false, điểm BẮT BUỘC phải là 0),\n"
+                + "  \"optimization_details\": [{\"section\": \"(Tên phần cần sửa đổi)\", \"status\": \"(Lỗi/Cần cải thiện/Tốt)\", \"advice\": \"(Lời khuyên chi tiết)\"}],\n"
                 + "  \"recommended_tools\": [{\"tool_name\": \"(Tên công cụ khuyến nghị)\", \"reason\": \"(Lý do sử dụng)\"}]\n"
-                + "}";
+                + "}\n\n"
+                + (isPdf ? "\n--- NỘI DUNG TÀI LIỆU ---\n" + finalCvText + "\n" : "");
 
         return flashClient.prompt()
                 .user(u -> {
@@ -212,28 +244,141 @@ public class SpringAiService {
                 + "  \"recommendation\": \"(hire hoặc reject hoặc consider)\",\n"
                 + "  \"summary\": {\n"
                 + "     \"skills\": [\"Kỹ năng 1\", \"Kỹ năng 2\"],\n"
-                + "     \"education\": {\"school\": \"Tên trường\", \"major\": \"Chuyên ngành\"},\n"
-                + "     \"workHistory\": [\"Tóm tắt kinh nghiệm 1\", \"Tóm tắt kinh nghiệm 2\"]\n"
+                + "     \"education\": {\"school\": \"Tên trường\", \"major\": \"Chuyên ngành\", \"gpa\": \"GPA nếu có\"},\n"
+                + "     \"workHistory\": [\n"
+                + "        { \"role\": \"Chức danh/Vị trí\", \"company\": \"Tên công ty\", \"duration\": \"Thời gian (ví dụ: 10/2022 - Hiện tại)\", \"description\": \"Mô tả ngắn gọn công việc và thành tựu\" }\n"
+                + "     ]\n"
                 + "  },\n"
                 + "  \"evidence\": [\n"
-                + "     {\"type\": \"match|mismatch|risk\", \"detail\": \"(Chi tiết bằng chứng/rủi ro cụ thể phát hiện được)\"}\n"
+                + "     {\"type\": \"match|mismatch|risk\", \"detail\": \"(Chi tiết bằng chứng/lý do cụ thể giải thích tại sao điểm số cao hoặc thấp. Phải nêu rõ lý do bị thấp nếu điểm thấp)\"}\n"
                 + "  ]\n"
                 + "}";
 
         return flashClient.prompt().user(prompt).call().content().replace("```json", "").replace("```", "").trim();
     }
     
-    // Fallback Mock cho Embedding vì Spring AI OpenAI dùng text-embedding-ada-002 kích thước 1536, 
-    // trong khi hệ thống đang dùng Qdrant 768 chiều.
     public List<Float> getEmbeddingList(String text) {
-        // Tạm thời trả về mảng rỗng để không lỗi Qdrant (vì Qdrant expect 768), 
-        // hoặc tự sinh mảng 768 phần tử giả
+        try {
+            if (text == null || text.trim().isEmpty()) {
+                List<Float> list = new ArrayList<>();
+                for (int i = 0; i < 768; i++) list.add(0.0f);
+                return list;
+            }
+
+            String requestBody = "{"
+                    + "\"content\": {"
+                    + "  \"parts\": ["
+                    + "    { \"text\": " + objectMapper.writeValueAsString(text) + " }"
+                    + "  ]"
+                    + "},"
+                    + "\"outputDimensionality\": 768"
+                    + "}";
+
+            String url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-2:embedContent?key=" + geminiApiKey;
+
+            HttpClient client = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                JsonNode root = objectMapper.readTree(response.body());
+                JsonNode valuesNode = root.path("embedding").path("values");
+                if (valuesNode.isArray()) {
+                    List<Float> floatEmbed = new ArrayList<>(valuesNode.size());
+                    for (JsonNode val : valuesNode) {
+                        floatEmbed.add((float) val.asDouble());
+                    }
+                    return floatEmbed;
+                }
+            } else {
+                System.err.println("⚠️ Lỗi HTTP khi gọi API Gemini Embedding: " + response.statusCode() + " - " + response.body());
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ Lỗi sinh embedding thực tế: " + e.getMessage());
+        }
+
         List<Float> list = new ArrayList<>();
         for (int i = 0; i < 768; i++) list.add(0.0f);
         return list;
     }
     
     public double calculateCosineSimilarity(String vectorAStr, String vectorBStr) {
-        return 0.85; // Mock similarity for speed
+        try {
+            if (vectorAStr == null || vectorBStr == null || vectorAStr.isEmpty() || vectorBStr.isEmpty()) {
+                return 0.0;
+            }
+            String cleanA = vectorAStr.replace("[", "").replace("]", "").trim();
+            String cleanB = vectorBStr.replace("[", "").replace("]", "").trim();
+            
+            if (cleanA.isEmpty() || cleanB.isEmpty()) {
+                return 0.0;
+            }
+
+            String[] partsA = cleanA.split(",");
+            String[] partsB = cleanB.split(",");
+
+            int minLength = Math.min(partsA.length, partsB.length);
+            if (minLength == 0) return 0.0;
+
+            double dotProduct = 0.0;
+            double normA = 0.0;
+            double normB = 0.0;
+
+            for (int i = 0; i < minLength; i++) {
+                double valA = Double.parseDouble(partsA[i].trim());
+                double valB = Double.parseDouble(partsB[i].trim());
+                dotProduct += valA * valB;
+                normA += valA * valA;
+                normB += valB * valB;
+            }
+
+            if (normA == 0.0 || normB == 0.0) {
+                return 0.0;
+            }
+
+            return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+        } catch (Exception e) {
+            System.err.println("⚠️ Lỗi tính Cosine Similarity: " + e.getMessage());
+            return 0.0;
+        }
+    }
+
+    public String refineText(String originalText) {
+        String promptText = "Bạn là một trợ lý tuyển dụng chuyên nghiệp. Hãy sửa lỗi chính tả, lỗi logic và tối ưu hóa cách diễn đạt cho nhận xét/thư tuyển dụng dưới đây để trở nên lịch sự, chuyên nghiệp, súc tích và mạch lạc hơn.\n\n"
+                + "--- NỘI DUNG GỐC ---\n"
+                + originalText + "\n\n"
+                + "Trả về CHỈ một chuỗi JSON hợp lệ theo định dạng chính xác sau (Không có Markdown ```json):\n"
+                + "{\n"
+                + "  \"refinedText\": \"(Nội dung đã được tối ưu hóa hoàn chỉnh, giữ nguyên ý nghĩa chính)\",\n"
+                + "  \"improvements\": [\n"
+                + "     \"Sửa lỗi chính tả (nếu có)\",\n"
+                + "     \"Cải thiện cách diễn đạt lịch thiệp hơn\",\n"
+                + "     \"Mạch lạc và rõ ràng hơn\"\n"
+                + "  ]\n"
+                + "}";
+
+        try {
+            return flashClient.prompt()
+                    .user(promptText)
+                    .call()
+                    .content().replace("```json", "").replace("```", "").trim();
+        } catch (Exception e) {
+            System.err.println("Gemini API error during refineText: " + e.getMessage());
+            String escapedText = originalText != null 
+                ? originalText.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "")
+                : "";
+            return "{\n"
+                    + "  \"refinedText\": \"" + escapedText + "\",\n"
+                    + "  \"improvements\": [\n"
+                    + "     \"Không thể kết nối với AI để đề xuất cải tiến lúc này: " + (e.getMessage() != null ? e.getMessage().replace("\"", "'").replace("\n", " ") : "Lỗi không xác định") + "\",\n"
+                    + "     \"Vui lòng kiểm tra lại API Key hoặc hạn ngạch tài khoản của bạn.\"\n"
+                    + "  ]\n"
+                    + "}";
+        }
     }
 }

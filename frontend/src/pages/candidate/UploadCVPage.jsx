@@ -793,77 +793,7 @@ const UploadCVPage = () => {
               </div>
 
               <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
-                {/* Lương đề xuất */}
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                  <h4 className="text-xs font-black uppercase text-slate-500 mb-3 flex items-center gap-2">
-                    <DollarSign size={14} className="text-emerald-500" /> Mức lương đề xuất (Tùy chọn)
-                  </h4>
-                  <p className="text-xs text-slate-500 mb-3">Ngân sách của công ty: <strong className="text-slate-800">{applyPreferenceModal.salaryRange || 'Thoả thuận'}</strong></p>
-                  <div className="flex gap-3">
-                    <div className="relative flex-1">
-                      <input
-                        type="number"
-                        placeholder="Nhập mức lương mong muốn (VD: 15)"
-                        value={expectedSalary}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setExpectedSalary(val);
-                          setSalaryError('');
-                          if (!salaryType) setSalaryType('Gross');
-                        }}
-                        className="w-full pl-4 pr-20 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold focus:outline-none focus:border-blue-500 transition-all"
-                      />
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">Triệu VNĐ</span>
-                    </div>
-                  </div>
 
-                  {expectedSalary && parseFloat(expectedSalary) > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest animate-none">Chọn loại lương kỳ vọng:</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setSalaryType('Gross')}
-                          className={`p-3 rounded-xl border text-left transition-all ${
-                            salaryType === 'Gross'
-                              ? 'bg-blue-50 border-blue-500 ring-2 ring-blue-100'
-                              : 'bg-white border-slate-200 hover:border-slate-300'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[11px] font-black text-slate-700">Lương GROSS</span>
-                            <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${salaryType === 'Gross' ? 'border-blue-500 bg-blue-500' : 'border-slate-300'}`}>
-                              {salaryType === 'Gross' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                            </div>
-                          </div>
-                          <p className="text-sm font-black text-blue-700">{parseFloat(expectedSalary).toLocaleString()} triệu</p>
-                          <p className="text-[10px] text-slate-400 mt-1">Quy đổi Net: ~{Math.round(parseFloat(expectedSalary) * 0.895 * 10) / 10} triệu</p>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setSalaryType('Net')}
-                          className={`p-3 rounded-xl border text-left transition-all ${
-                            salaryType === 'Net'
-                              ? 'bg-emerald-50 border-emerald-500 ring-2 ring-emerald-100'
-                              : 'bg-white border-slate-200 hover:border-slate-300'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-[11px] font-black text-slate-700">Lương NET</span>
-                            <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${salaryType === 'Net' ? 'border-emerald-500 bg-emerald-500' : 'border-slate-300'}`}>
-                              {salaryType === 'Net' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
-                            </div>
-                          </div>
-                          <p className="text-sm font-black text-emerald-700">{parseFloat(expectedSalary).toLocaleString()} triệu</p>
-                          <p className="text-[10px] text-slate-400 mt-1">Quy đổi Gross: ~{Math.round(parseFloat(expectedSalary) / 0.895 * 10) / 10} triệu</p>
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {salaryError && <p className="text-xs font-bold text-red-500 mt-2 flex items-center gap-1"><AlertTriangle size={12} /> {salaryError}</p>}
-                </div>
 
                 {/* Hình thức phỏng vấn */}
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
@@ -917,23 +847,10 @@ const UploadCVPage = () => {
                 </button>
                 <button
                   onClick={() => {
-                    if (applyPreferenceModal.salaryRange && applyPreferenceModal.salaryRange.toLowerCase() !== 'thoả thuận') {
-                      const match = applyPreferenceModal.salaryRange.match(/(\d+)\s*-\s*(\d+)/);
-                      if (match) {
-                        const minSal = parseInt(match[1]);
-                        const maxSal = parseInt(match[2]);
-                        const expSal = parseInt(expectedSalary);
-                        if (expectedSalary && (expSal < minSal || expSal > maxSal)) {
-                          setSalaryError(`Mức lương đề xuất phải nằm trong khoảng ${minSal} - ${maxSal} Triệu`);
-                          return;
-                        }
-                      }
-                    }
-                    setSalaryError('');
                     handleDirectApply(
                       applyPreferenceModal.jobId,
-                      expectedSalary ? parseInt(expectedSalary) * 1000000 : null,
-                      salaryType,
+                      null,
+                      null,
                       interviewPreference
                     );
                     setApplyPreferenceModal(prev => ({ ...prev, isOpen: false }));
